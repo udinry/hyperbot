@@ -1,0 +1,17 @@
+[Unit]
+Description=Udbhav Markets Dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/udbhav-markets
+Environment=PORT=3001
+Environment=HOST=127.0.0.1
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run start:prod
+Restart=always
+RestartSec=3
+User=ubuntu
+
+[Install]
+WantedBy=multi-user.target

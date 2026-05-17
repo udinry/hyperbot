@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notes</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+
+      :root {
+        color-scheme: light;
+        --bg: #f3efe7;
+        --panel: #fffdf8;
+        --ink: #1c1b1a;
+        --muted: #5b5854;
+        --accent: #b44b30;
+        --accent-2: #2f6f68;
+        --border: #e2d7c7;
+        --shadow: 0 18px 40px rgba(28, 27, 26, 0.12);
+      }
+
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #12110f;
+        --panel: #1c1a17;
+        --ink: #f4efe7;
+        --muted: #b4aa9c;
+        --accent: #e07a5f;
+        --accent-2: #7bc4b8;
+        --border: #2b2621;
+        --shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top left, #fff7ed 0%, var(--bg) 55%, #efe7db 100%);
+        padding: 32px 20px 60px;
+      }
+
+      body[data-theme="dark"] {
+        background: radial-gradient(circle at top left, #2a1f1a 0%, var(--bg) 55%, #0f0e0c 100%);
+      }
+
+      header,
+      nav,
+      .content {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+      }
+
+      
+
+      
+
+      nav a {
+        text-decoration: none;
+        color: var(--ink);
+        border: 1px solid var(--border);
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-size: 13px;
+      }
+
+      nav a.active {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .toolbar input {
+        flex: 1;
+        min-width: 220px;
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      input,
+      textarea {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        font-family: inherit;
+        background: transparent;
+        color: var(--ink);
+      }
+
+      textarea {
+        grid-column: 1 / -1;
+        min-height: 120px;
+      }
+
+      button {
+        padding: 12px 16px;
+        border-radius: 999px;
+        border: none;
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .secondary {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--ink);
+      }
+
+      .note-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        margin-top: 16px;
+      }
+
+      .note-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        background: var(--panel);
+        display: grid;
+        gap: 10px;
+      }
+
+      .note-meta {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .note-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .theme-toggle,
+      .logout {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        padding: 8px 14px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+    
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        max-width: 1200px;
+        margin: 0 auto 22px;
+      }
+
+      nav {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .intro {
+        max-width: 1200px;
+        margin: 0 auto 26px;
+        display: grid;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: var(--shadow);
+      }
+
+      .grid {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 20px;
+      }
+
+      .ticker-strip {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+        padding: 0;
+      }
+
+      .ticker-card {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        width: 100%;
+      }
+
+      .ticker-card .tradingview-widget-container,
+      .ticker-card .tradingview-widget-container__widget {
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        height: 64px !important;
+        min-height: 64px !important;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div style="font-weight:700; letter-spacing:0.08em; text-transform:uppercase;">Notes Lab</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size:12px; color: var(--accent-2);">{{ username }}</div>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <button class="theme-toggle" type="button" id="themeToggle">Toggle theme</button>
+        <form method="post" action="{{ url_for('logout') }}">
+          <button class="logout" type="submit">Log out</button>
+        </form>
+      </div>
+    </header>
+
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Home</a>
+      <a href="{{ url_for('bitcoin') }}">Bitcoin</a>
+      <a href="{{ url_for('journal') }}">Trading Journal</a>
+      <a href="{{ url_for('bot') }}">Trading Bot</a>
+      <a href="{{ url_for('links') }}">Important Links</a>
+      <a class="active" href="{{ url_for('notes') }}">Notes</a>
+    </nav>
+
+    <section class="content panel">
+      <div class="toolbar">
+        <h3 style="margin-right:auto;">Knowledge vault</h3>
+        <input id="noteSearch" type="text" placeholder="Search notes by title or body" />
+      </div>
+
+      <div style="margin:16px 0 18px;">
+        <form method="post" action="{{ url_for('notes') }}">
+          <input type="hidden" name="action" value="add" />
+          <input type="text" name="title" placeholder="Note title" required />
+          <textarea name="body" placeholder="Write the insight, checklist, or playbook" required></textarea>
+          <button type="submit">Add note</button>
+        </form>
+      </div>
+
+      <div class="note-grid" id="noteGrid">
+        {% for note in notes %}
+        <div class="note-card" data-title="{{ note.title|lower }}" data-body="{{ note.body|lower }}">
+          <div class="note-meta">Created {{ note.created }} · Updated {{ note.updated }}</div>
+          <form method="post" action="{{ url_for('notes') }}">
+            <input type="hidden" name="action" value="update" />
+            <input type="hidden" name="id" value="{{ note.id }}" />
+            <input type="text" name="title" value="{{ note.title }}" />
+            <textarea name="body">{{ note.body }}</textarea>
+            <div class="note-actions">
+              <button type="submit">Save changes</button>
+            </div>
+          </form>
+          <form method="post" action="{{ url_for('notes') }}">
+            <input type="hidden" name="action" value="delete" />
+            <input type="hidden" name="id" value="{{ note.id }}" />
+            <button class="secondary" type="submit">Delete note</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <script>
+      const themeToggle = document.getElementById("themeToggle");
+      const currentTheme = localStorage.getItem("udbhav-theme") || "light";
+      document.body.dataset.theme = currentTheme === "dark" ? "dark" : "light";
+
+      themeToggle.addEventListener("click", () => {
+        const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+        document.body.dataset.theme = nextTheme;
+        localStorage.setItem("udbhav-theme", nextTheme);
+      });
+
+      const searchInput = document.getElementById("noteSearch");
+      const noteGrid = document.getElementById("noteGrid");
+      const noteCards = Array.from(noteGrid?.children || []);
+
+      const filterNotes = () => {
+        const query = (searchInput.value || "").toLowerCase().trim();
+        noteCards.forEach((card) => {
+          const title = card.dataset.title || "";
+          const body = card.dataset.body || "";
+          const visible = !query || title.includes(query) || body.includes(query);
+          card.style.display = visible ? "grid" : "none";
+        });
+      };
+
+      if (searchInput) {
+        searchInput.addEventListener("input", filterNotes);
+      }
+    </script>
+  
+
+
+
+
+
+
+
+
+</body>
+</html>
+
+

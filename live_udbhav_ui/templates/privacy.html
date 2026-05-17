@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+
+      :root {
+        color-scheme: light;
+        --bg: #f3efe7;
+        --panel: #fffdf8;
+        --ink: #1c1b1a;
+        --muted: #5b5854;
+        --accent: #b44b30;
+        --border: #e2d7c7;
+        --shadow: 0 18px 40px rgba(28, 27, 26, 0.12);
+      }
+
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #12110f;
+        --panel: #1c1a17;
+        --ink: #f4efe7;
+        --muted: #b4aa9c;
+        --accent: #e07a5f;
+        --border: #2b2621;
+        --shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top left, #fff7ed 0%, var(--bg) 55%, #efe7db 100%);
+        padding: 32px 20px 60px;
+      }
+
+      body[data-theme="dark"] {
+        background: radial-gradient(circle at top left, #2a1f1a 0%, var(--bg) 55%, #0f0e0c 100%);
+      }
+
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        display: grid;
+        gap: 16px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 22px;
+        box-shadow: var(--shadow);
+      }
+
+      h1 {
+        font-size: 24px;
+      }
+
+      h2 {
+        font-size: 18px;
+        margin-top: 12px;
+      }
+
+      p,
+      li {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      ul {
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .meta {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+        color: var(--accent);
+      }
+
+      .footer {
+        font-size: 12px;
+        color: var(--muted);
+      }
+    
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        max-width: 1200px;
+        margin: 0 auto 22px;
+      }
+
+      nav {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .intro {
+        max-width: 1200px;
+        margin: 0 auto 26px;
+        display: grid;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: var(--shadow);
+      }
+
+      .grid {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 20px;
+      }
+
+      .ticker-strip {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+        padding: 0;
+      }
+
+      .ticker-card {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        width: 100%;
+      }
+
+      .ticker-card .tradingview-widget-container,
+      .ticker-card .tradingview-widget-container__widget {
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        height: 64px !important;
+        min-height: 64px !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="panel">
+        <div class="meta">Udbhav.uk</div>
+        <h1>Privacy Policy</h1>
+        <p>Last updated: February 8, 2026</p>
+      </div>
+
+      <div class="panel">
+        <h2>Overview</h2>
+        <p>
+          This site is a personal dashboard with optional Google sign-in. We collect only the information needed to
+          operate the features you use, such as diary entries, journal data, and calendar events.
+        </p>
+
+        <h2>Information We Collect</h2>
+        <ul>
+          <li>Account data: your Google account email and name (if you sign in with Google).</li>
+          <li>Dashboard content: entries you create (diary, strategies, journal, links).</li>
+          <li>Photos you upload for diary entries.</li>
+          <li>Calendar data you grant access to (primary calendar only).</li>
+        </ul>
+
+        <h2>How We Use Your Information</h2>
+        <ul>
+          <li>To authenticate you and personalize your dashboard.</li>
+          <li>To display and organize your content.</li>
+          <li>To sync calendar events you choose to connect.</li>
+          <li>To maintain backups you request.</li>
+        </ul>
+
+        <h2>Data Storage</h2>
+        <p>
+          Data is stored on the server hosting Udbhav.uk. Backups may be transferred to a private Windows machine owned
+          by the operator. We do not sell your data.
+        </p>
+
+        <h2>Third-Party Services</h2>
+        <p>
+          We use Google OAuth and the Google Calendar API to connect your account when you request it. Google’s own
+          privacy terms also apply.
+        </p>
+
+        <h2>Your Choices</h2>
+        <ul>
+          <li>You can disconnect Google at any time from within the dashboard.</li>
+          <li>You can request deletion of your stored data by contacting the operator.</li>
+        </ul>
+
+        <h2>Contact</h2>
+        <p>If you have questions about this policy, contact the site operator.</p>
+      </div>
+
+      <div class="panel footer">
+        This is a personal dashboard and not intended for regulated or sensitive medical, legal, or financial data.
+      </div>
+    </main>
+  
+
+
+
+
+
+
+
+
+</body>
+</html>
+

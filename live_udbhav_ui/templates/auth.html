@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Udbhav.uk</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+
+      :root {
+        color-scheme: light;
+        --bg: #f6f2ea;
+        --bg-2: #f1eadf;
+        --ink: #1c1b1a;
+        --muted: #5b5854;
+        --accent: #b44b30;
+        --accent-2: #2f6f68;
+        --card: #fffdf8;
+        --border: #e2d7c7;
+        --shadow: 0 24px 60px rgba(28, 27, 26, 0.12);
+      }
+
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #12110f;
+        --bg-2: #0e0d0b;
+        --ink: #f4efe7;
+        --muted: #b4aa9c;
+        --accent: #e07a5f;
+        --accent-2: #7bc4b8;
+        --card: #1c1a17;
+        --border: #2b2621;
+        --shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top left, #fff7ed 0%, var(--bg) 55%, var(--bg-2) 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 48px 20px;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+
+      body[data-theme="dark"] {
+        background: radial-gradient(circle at top left, #2a1f1a 0%, var(--bg) 55%, var(--bg-2) 100%);
+      }
+
+      .shell {
+        width: min(980px, 100%);
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 32px;
+        align-items: stretch;
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        padding: 32px;
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .panel::after {
+        content: "";
+        position: absolute;
+        inset: -30% -20% auto auto;
+        width: 240px;
+        height: 240px;
+        background: radial-gradient(circle, rgba(180, 75, 48, 0.18) 0%, rgba(180, 75, 48, 0) 70%);
+        pointer-events: none;
+      }
+
+      .preview {
+        display: grid;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .preview-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+        background: rgba(47, 111, 104, 0.08);
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      body[data-theme="dark"] .preview-card {
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .brand {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .logo img {
+        width: 44px;
+        height: 44px;
+      }
+
+      .tagline {
+        font-size: 20px;
+        line-height: 1.4;
+        color: var(--muted);
+      }
+
+      .meta {
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--accent-2);
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        margin-top: 18px;
+        position: relative;
+        z-index: 1;
+      }
+
+      button {
+        margin-top: 6px;
+        padding: 14px 16px;
+        border-radius: 999px;
+        border: none;
+        background: var(--accent);
+        color: white;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 24px rgba(180, 75, 48, 0.18);
+      }
+
+      .ghost {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--ink);
+        margin-top: 12px;
+      }
+
+      .message {
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        background: rgba(47, 111, 104, 0.12);
+        color: var(--accent-2);
+        border: 1px solid rgba(47, 111, 104, 0.2);
+      }
+
+      .error {
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        background: rgba(180, 75, 48, 0.12);
+        color: var(--accent);
+        border: 1px solid rgba(180, 75, 48, 0.2);
+      }
+
+      .alt {
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .alt a {
+        color: var(--accent);
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .title {
+        font-size: 26px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        margin-top: 6px;
+        color: var(--muted);
+      }
+
+      .theme-toggle {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        padding: 8px 14px;
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 13px;
+        margin-top: 12px;
+      }
+
+      .legal {
+        margin-top: 18px;
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .legal a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      @media (max-width: 680px) {
+        body {
+          padding: 32px 16px;
+        }
+
+        .panel {
+          padding: 24px;
+        }
+      }
+    
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        max-width: 1200px;
+        margin: 0 auto 22px;
+      }
+
+      nav {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .intro {
+        max-width: 1200px;
+        margin: 0 auto 26px;
+        display: grid;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: var(--shadow);
+      }
+
+      .grid {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 20px;
+      }
+
+      .ticker-strip {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+        padding: 0;
+      }
+
+      .ticker-card {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        width: 100%;
+      }
+
+      .ticker-card .tradingview-widget-container,
+      .ticker-card .tradingview-widget-container__widget {
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        height: 64px !important;
+        min-height: 64px !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel brand">
+        <div class="meta">Udbhav.uk</div>
+        <div class="logo">
+          <img src="{{ url_for('static', filename='logo.png') }}" alt="Udbhav logo" />
+          <span>Udbhav</span>
+        </div>
+        <div class="tagline">
+          A personal dashboard built around the tools Udbhav wants: strategies, journals, insights, and life logs.
+        </div>
+        <div class="preview">
+          <div class="preview-card">Daily diary with mood tracking, streaks, and collage.</div>
+          <div class="preview-card">Strategy tracker with progress and performance notes.</div>
+          <div class="preview-card">Journal analytics, charts, and tag insights.</div>
+        </div>
+        <div class="legal">
+          <a href="{{ url_for('privacy') }}">Privacy Policy</a>
+          <a href="{{ url_for('terms') }}">Terms of Service</a>
+        </div>
+        <button class="theme-toggle" type="button" id="themeToggle">Toggle theme</button>
+      </section>
+
+      <section class="panel">
+        <div class="title">{{ title }}</div>
+        <div class="subtitle">{{ subtitle }}</div>
+
+        {% if message %}
+        <div class="message">{{ message }}</div>
+        {% endif %}
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <div style="display:grid; gap:14px; margin-top:18px;">
+          <a href="{{ url_for('google_login') }}" style="text-decoration:none;">
+            <button type="button">Continue with Google</button>
+          </a>
+
+          <div style="border-top:1px solid var(--border); padding-top:14px; display:grid; gap:10px;">
+            <div class="meta">Username + password</div>
+            <form method="post" action="{{ url_for('login') }}" style="gap:10px;">
+              <input type="hidden" name="action" value="legacy" />
+              <input type="text" name="username" placeholder="Username" required />
+              <input type="password" name="password" placeholder="Password" required />
+              <button class="ghost" type="submit">Log in</button>
+            </form>
+            <div class="alt">This is the classic login for accounts you created earlier.</div>
+          </div>
+
+          <form method="post" action="{{ url_for('login') }}">
+            <input type="hidden" name="action" value="guest" />
+            <button class="ghost" type="submit">Continue as guest</button>
+          </form>
+
+          <div style="border-top:1px solid var(--border); padding-top:14px; display:grid; gap:10px;">
+            <div class="meta">Email login (OTP coming soon)</div>
+            <form method="post" action="{{ url_for('login') }}" style="gap:10px;">
+              <input type="hidden" name="action" value="email" />
+              <input type="email" name="email" placeholder="you@example.com" required />
+              <button class="ghost" type="submit">Send verification code</button>
+            </form>
+            <div class="alt">Email verification is not enabled yet. We will turn it on once email sending is configured.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const themeToggle = document.getElementById("themeToggle");
+      const storedTheme = localStorage.getItem("udbhav-theme");
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      const currentTheme = storedTheme || systemTheme;
+      document.body.dataset.theme = currentTheme === "dark" ? "dark" : "light";
+
+      themeToggle.addEventListener("click", () => {
+        const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+        document.body.dataset.theme = nextTheme;
+        localStorage.setItem("udbhav-theme", nextTheme);
+      });
+    </script>
+  
+
+
+
+
+
+
+
+
+</body>
+</html>
+

@@ -1,0 +1,16 @@
+[Unit]
+Description=Udbhav UI (Signup/Login)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/udbhav-ui
+Environment=PORT=8000
+Environment=HOST=0.0.0.0
+ExecStart=/opt/udbhav-ui/.venv/bin/python /opt/udbhav-ui/app.py
+Restart=always
+RestartSec=3
+User=ubuntu
+
+[Install]
+WantedBy=multi-user.target

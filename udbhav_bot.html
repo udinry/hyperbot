@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vault Portfolio</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vaults.css') }}">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">Udbhav's trading bots</p>
+        <h1>Vault Portfolio Intelligence</h1>
+        <p class="subtitle">Account-level vault exposure, performance and allocation. Hover any chart for exact values.</p>
+      </div>
+      <form class="account-form" method="post">
+        <label for="account_address">Account address</label>
+        <div class="input-row">
+          <input
+            id="account_address"
+            name="account_address"
+            placeholder="0x..."
+            value="{{ account_address or '' }}"
+            autocomplete="off"
+          >
+          <button type="submit">Save & refresh</button>
+        </div>
+        {% if message %}
+          <p class="message success">{{ message }}</p>
+        {% endif %}
+        {% if error %}
+          <p class="message error">{{ error }}</p>
+        {% endif %}
+      </form>
+    </header>
+
+    <section class="stats">
+      <div class="stat">
+        <span class="label">Total vault equity</span>
+        <span class="value" id="totalEquity">{{ '%.2f'|format(total_equity) }} USDC</span>
+      </div>
+      <div class="stat">
+        <span class="label">Total vault PnL</span>
+        <span class="value {{ 'positive' if total_pnl >= 0 else 'negative' }}">
+          {{ '%.2f'|format(total_pnl) }} USDC
+        </span>
+      </div>
+      <div class="stat">
+        <span class="label">Total return</span>
+        <span class="value {{ 'positive' if total_return_pct >= 0 else 'negative' }}">
+          {{ '%.2f'|format(total_return_pct) }}%
+        </span>
+      </div>
+      <div class="stat">
+        <span class="label">Vault count</span>
+        <span class="value">{{ vaults|length }}</span>
+      </div>
+      <div class="stat">
+        <span class="label">Last refresh</span>
+        <span class="value" id="lastRefresh">Just now</span>
+      </div>
+    </section>
+
+    <section class="chart-grid">
+      <div class="chart-card">
+        <div class="panel-header">
+          <h2>Total account value</h2>
+          <p>Estimated curve based on your vault entry time and current equity.</p>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="totalCurve"></canvas>
+          <div class="tooltip" id="totalTooltip"></div>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="panel-header">
+          <h2>Vault PnL</h2>
+          <p>Per-vault PnL (current). Negative bars extend downward.</p>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="pnlChart"></canvas>
+          <div class="tooltip" id="pnlTooltip"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="chart-panel">
+      <div class="panel-header">
+        <h2>Allocation by vault</h2>
+        <p>Hover a bar to see exact allocation and performance.</p>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="allocationChart"></canvas>
+        <div class="tooltip" id="chartTooltip"></div>
+      </div>
+    </section>
+
+    <section class="vault-grid">
+      {% if vaults|length == 0 %}
+        <div class="empty-state">
+          <h3>No vault data yet</h3>
+          <p>Enter an account address above to fetch vault allocations.</p>
+        </div>
+      {% else %}
+        {% for v in vaults %}
+        <article class="vault-card" data-vault-id="{{ v.id }}">
+          <div class="card-header">
+            <div>
+              <h3>{{ v.name }}</h3>
+              <p class="muted">{{ v.id }}</p>
+            </div>
+            <span class="badge">{{ '%.2f'|format(v.share) }}%</span>
+          </div>
+          <div class="card-metrics">
+            <div>
+              <span class="label">Equity</span>
+              <span class="value">{{ '%.2f'|format(v.equity) }} USDC</span>
+            </div>
+            <div>
+              <span class="label">PnL</span>
+              <span class="value {{ 'positive' if (v.pnl or 0) >= 0 else 'negative' }}">
+                {{ '%.2f'|format(v.pnl or 0) }} USDC
+              </span>
+            </div>
+            <div>
+              <span class="label">All-time PnL</span>
+              <span class="value {{ 'positive' if (v.all_time_pnl or 0) >= 0 else 'negative' }}">
+                {{ '%.2f'|format(v.all_time_pnl or 0) }} USDC
+              </span>
+            </div>
+            <div>
+              <span class="label">APR</span>
+              <span class="value">{{ '%.2f'|format(v.apr or 0) }}%</span>
+            </div>
+          </div>
+          <div class="sparkline" data-vault-id="{{ v.id }}">
+            <div class="spark-tooltip"></div>
+          </div>
+        </article>
+        {% endfor %}
+      {% endif %}
+    </section>
+  </div>
+
+  <script>
+    window.VAULTS = {{ vaults|tojson }};
+    window.TOTAL_EQUITY = {{ total_equity|tojson }};
+    window.TOTAL_SERIES = {{ total_series|tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='vaults.js') }}"></script>
+</body>
+</html>

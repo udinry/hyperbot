@@ -1,0 +1,3 @@
+[submodule "monoth_src"]
+	path = monoth_src
+	url = https://github.com/udinry/monoth.git

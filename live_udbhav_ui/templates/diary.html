@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personal Diary</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+
+      :root {
+        color-scheme: light;
+        --bg: #f4efe8;
+        --panel: #fffdf8;
+        --ink: #1c1b1a;
+        --muted: #5b5854;
+        --accent: #b44b30;
+        --accent-2: #2f6f68;
+        --border: #e2d7c7;
+        --shadow: 0 18px 40px rgba(28, 27, 26, 0.12);
+      }
+
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #12110f;
+        --panel: #1c1a17;
+        --ink: #f4efe7;
+        --muted: #b4aa9c;
+        --accent: #e07a5f;
+        --accent-2: #7bc4b8;
+        --border: #2b2621;
+        --shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top left, #fff7ed 0%, var(--bg) 55%, #efe7db 100%);
+        padding: 32px 20px 60px;
+      }
+
+      body[data-theme="dark"] {
+        background: radial-gradient(circle at top left, #2a1f1a 0%, var(--bg) 55%, #0f0e0c 100%);
+      }
+
+      header,
+      nav,
+      .content,
+      .ticker-strip,
+      .today-panel {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      nav {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      nav a {
+        text-decoration: none;
+        color: var(--ink);
+        border: 1px solid var(--border);
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-size: 13px;
+      }
+
+      nav a.active {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+      }
+
+      .grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .mood-chips {
+        grid-column: 1 / -1;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .mood-chip {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .mood-chip.active {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+      }
+
+      input,
+      select,
+      textarea {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        font-family: inherit;
+        background: var(--panel);
+        color: var(--ink);
+        width: 100%;
+      }
+
+      select {
+        appearance: none;
+        background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+          linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+        background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+        padding-right: 28px;
+      }
+
+      option {
+        background: var(--panel);
+        color: var(--ink);
+      }
+
+      textarea {
+        grid-column: 1 / -1;
+        min-height: 120px;
+      }
+
+      .prompt {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: -6px;
+      }
+
+      button {
+        padding: 12px 16px;
+        border-radius: 999px;
+        border: none;
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .secondary {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--ink);
+        padding: 8px 12px;
+        border-radius: 999px;
+      }
+
+      .diary-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+
+      .diary-grid.wide {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .entry-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .entry-card img {
+        width: 100%;
+        border-radius: 12px;
+        object-fit: cover;
+        max-height: 220px;
+      }
+
+      .calendar {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 6px;
+        margin-top: 12px;
+      }
+
+      .calendar-controls {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-top: 10px;
+      }
+
+      .calendar-controls select {
+        min-width: 140px;
+      }
+
+      .calendar .cell {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px;
+        min-height: 64px;
+        font-size: 12px;
+        display: grid;
+        gap: 6px;
+        background: rgba(255, 255, 255, 0.4);
+      }
+
+      body[data-theme="dark"] .calendar .cell {
+        background: rgba(0, 0, 0, 0.2);
+      }
+
+      .calendar .cell strong {
+        font-size: 12px;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: 12px;
+      }
+
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .legend b {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 4px;
+      }
+
+      .theme-toggle,
+      .logout {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        padding: 8px 14px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+
+      .jump-select {
+        margin-left: auto;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        font-size: 12px;
+      }
+
+      .ticker-strip {
+        padding: 0;
+      }
+
+      .ticker-card {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        width: 100%;
+      }
+
+      .ticker-card .tradingview-widget-container {
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--panel);
+      }
+
+      .ticker-card .tradingview-widget-container,
+      .ticker-card .tradingview-widget-container__widget {
+        width: 100% !important;
+        height: 64px !important;
+        min-height: 64px !important;
+      }
+
+      .ticker-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--accent-2);
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+
+      .insights-grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+
+      .insights-column {
+        display: grid;
+        gap: 18px;
+      }
+
+      @media (max-width: 900px) {
+        form {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div style="font-weight:700; letter-spacing:0.08em; text-transform:uppercase;">Personal Diary</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size:12px; color: var(--accent-2);">{{ username }}</div>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <button class="theme-toggle" type="button" id="themeToggle">Toggle theme</button>
+        <form method="post" action="{{ url_for('logout') }}">
+          <button class="logout" type="submit">Log out</button>
+        </form>
+      </div>
+    </header>
+
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Home</a>
+      <a class="active" href="{{ url_for('diary') }}">Diary</a>
+      <a href="{{ url_for('strategies') }}">Strategies</a>
+      <a href="{{ url_for('journal') }}">Trading Journal</a>
+      <a href="{{ url_for('bot') }}">Trading Bot</a>
+      <a href="{{ url_for('bitcoin') }}">Bitcoin</a>
+      <a href="{{ url_for('links') }}">Important Links</a>
+      <a href="{{ url_for('collage') }}">Collage</a>
+      <select id="pageJump" class="jump-select">
+        <option value="">Jump to...</option>
+        <option value="{{ url_for('dashboard') }}">Home</option>
+        <option value="{{ url_for('diary') }}">Diary</option>
+        <option value="{{ url_for('strategies') }}">Strategies</option>
+        <option value="{{ url_for('journal') }}">Trading Journal</option>
+        <option value="{{ url_for('bot') }}">Trading Bot</option>
+        <option value="{{ url_for('bitcoin') }}">Bitcoin</option>
+        <option value="{{ url_for('links') }}">Important Links</option>
+        <option value="{{ url_for('collage') }}">Collage</option>
+      </select>
+    </nav>
+
+    <section class="ticker-strip">
+      <div class="ticker-card">
+        <div class="ticker-title">Market pulse</div>
+        <div class="tradingview-widget-container">
+          <div class="tradingview-widget-container__widget"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
+            {
+              "symbols": [
+                { "proName": "COINBASE:BTCUSDC", "title": "BTCUSDC" },
+                { "proName": "NASDAQ:NDX", "title": "NASDAQ" },
+                { "proName": "NASDAQ:META", "title": "META" },
+                { "proName": "NASDAQ:GOOGL", "title": "GOOGL" },
+                { "proName": "NASDAQ:OPEN", "title": "OPEN" },
+                { "proName": "NASDAQ:TSLA", "title": "TSLA" },
+                { "proName": "NASDAQ:NVDA", "title": "NVDA" },
+                { "proName": "NASDAQ:NFLX", "title": "NFLX" },
+                { "proName": "NASDAQ:AMZN", "title": "AMZN" },
+                { "proName": "NASDAQ:MSFT", "title": "MSFT" },
+                { "proName": "OANDA:XAUUSD", "title": "XAUUSD" },
+                { "proName": "OANDA:XAGUSD", "title": "XAGUSD" }
+              ],
+              "showSymbolLogo": true,
+              "colorTheme": "dark",
+              "isTransparent": false,
+              "displayMode": "compact",
+              "locale": "en"
+            }
+          </script>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel today-panel">
+      <h3>Today</h3>
+      {% if entries and entries[0].date %}
+      <div style="display:grid; gap:8px; margin-top:10px;">
+        <div style="font-weight:700;">{{ entries[0].headline or "No headline yet" }}</div>
+        <div style="font-size:12px; color: var(--muted);">Mood: {{ entries[0].mood or "Neutral" }} - Happiness: {{ entries[0].happiness or "0" }}</div>
+        <div style="font-size:13px;">{{ entries[0].notes or "Add a note about today." }}</div>
+      </div>
+      {% else %}
+      <div style="font-size:13px; color: var(--muted);">No entry yet. Add one below.</div>
+      {% endif %}
+    </section>
+
+    <section class="content grid">
+      <div class="panel full">
+        <h2>Log today</h2>
+        <div class="prompt">A quick check-in keeps the streak alive. Keep it honest, keep it simple.</div>
+        <form method="post" action="{{ url_for('diary') }}" enctype="multipart/form-data">
+          <input type="date" name="date" required />
+          <div class="mood-chips" id="moodChips">
+            <button class="mood-chip" type="button" data-mood="Radiant">Radiant</button>
+            <button class="mood-chip" type="button" data-mood="Good">Good</button>
+            <button class="mood-chip" type="button" data-mood="Calm">Calm</button>
+            <button class="mood-chip" type="button" data-mood="Neutral">Neutral</button>
+            <button class="mood-chip" type="button" data-mood="Stressed">Stressed</button>
+            <button class="mood-chip" type="button" data-mood="Low">Low</button>
+          </div>
+          <select name="mood" required>
+            <option value="Radiant">Radiant</option>
+            <option value="Good">Good</option>
+            <option value="Calm">Calm</option>
+            <option value="Neutral">Neutral</option>
+            <option value="Stressed">Stressed</option>
+            <option value="Low">Low</option>
+          </select>
+          <input type="number" name="happiness" placeholder="Happiness (1-10)" min="1" max="10" required />
+          <input type="text" name="headline" placeholder="One-line highlight of the day" />
+          <input type="text" name="gratitude" placeholder="What are you grateful for today?" />
+          <input type="text" name="win_one" placeholder="Top win #1" />
+          <input type="text" name="win_two" placeholder="Top win #2" />
+          <input type="text" name="win_three" placeholder="Top win #3" />
+          <input type="file" name="photo" accept="image/*" />
+          <div class="prompt">A single photo helps build your monthly collage.</div>
+          <textarea name="notes" placeholder="How was the day? What moved you?"></textarea>
+          <button type="submit">Save entry</button>
+        </form>
+      </div>
+
+      <div class="insights-grid">
+        <div class="insights-column">
+          <div class="panel">
+            <h2>Mood + Calendar</h2>
+            <div class="calendar-controls">
+              <select id="calendarMonth"></select>
+              <select id="calendarYear"></select>
+            </div>
+            <div id="calendar" class="calendar"></div>
+          <div class="legend">
+            <span><b style="background:#2f6f68;"></b>Radiant</span>
+            <span><b style="background:#4a8a63;"></b>Good</span>
+            <span><b style="background:#6b8f6e;"></b>Calm</span>
+            <span><b style="background:#b4aa9c;"></b>Neutral</span>
+            <span><b style="background:#c37b5c;"></b>Stressed</span>
+            <span><b style="background:#b44b30;"></b>Low</span>
+          </div>
+          <div id="calendarEntry" class="entry-card" style="margin-top:12px;">
+            <div style="font-size:12px; color: var(--muted);">Select a date to see that entry.</div>
+          </div>
+        </div>
+
+          <div class="panel">
+            <h2>Streaks &amp; best week</h2>
+            <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+              <div class="entry-card">
+                <div style="font-size:12px; color: var(--muted);">Current streak</div>
+                <strong style="font-size:22px;">{{ current_streak }} days</strong>
+              </div>
+              <div class="entry-card">
+                <div style="font-size:12px; color: var(--muted);">Longest streak</div>
+                <strong style="font-size:22px;">{{ longest_streak }} days</strong>
+              </div>
+              <div class="entry-card">
+                <div style="font-size:12px; color: var(--muted);">Best week</div>
+                <strong style="font-size:18px;">{{ best_week_start }}</strong>
+                <div style="font-size:12px; color: var(--muted);">Avg happiness {{ best_week_avg }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="insights-column">
+          <div class="panel">
+            <h2>Happiness trend</h2>
+            <div style="border:1px solid var(--border); border-radius:14px; padding:12px;">
+              <canvas id="happinessChart"></canvas>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Monthly mood summary</h2>
+            <div class="diary-grid">
+              {% for summary in monthly_summary %}
+              <div class="entry-card">
+                <div style="font-size:12px; color: var(--muted);">{{ summary.month }}</div>
+                <div style="font-size:20px; font-weight:700;">Avg {{ summary.avg }}</div>
+                <div style="font-size:13px;">Dominant: {{ summary.dominant }}</div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Daily inspiration</h2>
+            <div class="entry-card">
+              <div style="font-size:12px; color: var(--muted);">Quote of the day</div>
+              <div style="font-weight:700;">{{ daily_quote or "Stay curious, stay kind." }}</div>
+              {% if daily_author %}
+              <div style="font-size:12px; color: var(--muted);">— {{ daily_author }}</div>
+              {% endif %}
+            </div>
+            <div class="entry-card">
+              <div style="font-size:12px; color: var(--muted);">Photo of the day</div>
+              {% if daily_photo_url %}
+              <img src="{{ daily_photo_url }}" alt="Daily inspiration" />
+              {% else %}
+              <div style="font-size:13px; color: var(--muted);">Photo unavailable.</div>
+              {% endif %}
+            </div>
+            <div class="entry-card">
+              <div style="font-size:12px; color: var(--muted);">Joke of the day</div>
+              <div style="font-size:13px;">{{ daily_joke or "Time flies like an arrow; fruit flies like a banana." }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer style="max-width:1200px; margin:24px auto 0; font-size:12px; color: var(--muted); display:flex; gap:12px; flex-wrap:wrap;">
+      <span>Udbhav.uk</span>
+      <a href="{{ url_for('privacy') }}">Privacy</a>
+      <a href="{{ url_for('terms') }}">Terms</a>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      const themeToggle = document.getElementById("themeToggle");
+      const storedTheme = localStorage.getItem("udbhav-theme");
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      const currentTheme = storedTheme || systemTheme;
+      document.body.dataset.theme = currentTheme === "dark" ? "dark" : "light";
+
+      themeToggle.addEventListener("click", () => {
+        const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+        document.body.dataset.theme = nextTheme;
+        localStorage.setItem("udbhav-theme", nextTheme);
+      });
+
+      const moodSelect = document.querySelector("select[name='mood']");
+      const moodChips = document.querySelectorAll(".mood-chip");
+      const syncChips = (value) => {
+        moodChips.forEach((chip) => {
+          chip.classList.toggle("active", chip.dataset.mood === value);
+        });
+      };
+
+      if (moodSelect) {
+        syncChips(moodSelect.value);
+        moodChips.forEach((chip) => {
+          chip.addEventListener("click", () => {
+            moodSelect.value = chip.dataset.mood;
+            syncChips(chip.dataset.mood);
+          });
+        });
+        moodSelect.addEventListener("change", () => syncChips(moodSelect.value));
+      }
+
+      const pageJump = document.getElementById("pageJump");
+      if (pageJump) {
+        pageJump.addEventListener("change", () => {
+          if (pageJump.value) {
+            window.location.href = pageJump.value;
+          }
+        });
+      }
+
+      const moodMap = {{ mood_map|tojson }};
+      const entriesByDate = {{ entries_by_date|tojson }};
+      const calendarEl = document.getElementById("calendar");
+      const calendarMonth = document.getElementById("calendarMonth");
+      const calendarYear = document.getElementById("calendarYear");
+      const calendarEntryEl = document.getElementById("calendarEntry");
+
+      const moodColors = {
+        Radiant: "#2f6f68",
+        Good: "#4a8a63",
+        Calm: "#6b8f6e",
+        Neutral: "#b4aa9c",
+        Stressed: "#c37b5c",
+        Low: "#b44b30",
+      };
+
+      const today = new Date();
+      const initialYear = today.getFullYear();
+      const initialMonth = today.getMonth();
+
+      const monthLabels = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+
+      const renderEntry = (dateKey) => {
+        if (!calendarEntryEl) return;
+        const entry = entriesByDate[dateKey];
+        if (!entry) {
+          calendarEntryEl.innerHTML = `<div style="font-size:12px; color: var(--muted);">No entry saved for ${dateKey}.</div>`;
+          return;
+        }
+        const wins = [entry.win_one, entry.win_two, entry.win_three].filter(Boolean);
+        const winsHtml = wins.length
+          ? `<div style="font-size:12px; color: var(--muted); margin-top:6px;">Top wins</div><ul style="padding-left:16px; font-size:13px; display:grid; gap:4px;">${wins
+              .map((win) => `<li>${win}</li>`)
+              .join("")}</ul>`
+          : "";
+        const photoHtml = entry.photo
+          ? `<img src="${entry.photo_url}" alt="Diary photo" style="width:100%; border-radius:12px; margin-top:8px;" />`
+          : "";
+        calendarEntryEl.innerHTML = `
+          <div style="font-size:12px; color: var(--muted);">${dateKey} · ${entry.mood || "Neutral"} · Happiness ${entry.happiness || "-"}</div>
+          <div style="font-weight:700;">${entry.headline || "No headline yet"}</div>
+          ${entry.gratitude ? `<div style="font-size:12px; color: var(--muted);">Gratitude</div><div style="font-size:13px;">${entry.gratitude}</div>` : ""}
+          ${winsHtml}
+          ${entry.notes ? `<div style="white-space: pre-wrap;">${entry.notes}</div>` : ""}
+          ${photoHtml}
+        `;
+      };
+
+      const renderCalendar = (year, month) => {
+        calendarEl.innerHTML = "";
+        const firstDay = new Date(year, month, 1);
+        const startDay = firstDay.getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const totalCells = Math.ceil((startDay + daysInMonth) / 7) * 7;
+
+        for (let i = 0; i < totalCells; i += 1) {
+          const cell = document.createElement("div");
+          cell.className = "cell";
+          const dayNum = i - startDay + 1;
+          if (dayNum > 0 && dayNum <= daysInMonth) {
+            const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+            const mood = moodMap[dateKey];
+            cell.innerHTML = `<strong>${dayNum}</strong><div>${mood || ""}</div>`;
+            if (mood && moodColors[mood]) {
+              cell.style.borderColor = moodColors[mood];
+              cell.style.background = `${moodColors[mood]}22`;
+            }
+            cell.dataset.date = dateKey;
+            cell.addEventListener("click", () => {
+              renderEntry(dateKey);
+            });
+          }
+          calendarEl.appendChild(cell);
+        }
+      };
+
+      if (calendarMonth && calendarYear) {
+        monthLabels.forEach((label, idx) => {
+          const option = document.createElement("option");
+          option.value = String(idx);
+          option.textContent = label;
+          calendarMonth.appendChild(option);
+        });
+
+        for (let year = initialYear - 2; year <= initialYear + 1; year += 1) {
+          const option = document.createElement("option");
+          option.value = String(year);
+          option.textContent = String(year);
+          calendarYear.appendChild(option);
+        }
+
+        calendarMonth.value = String(initialMonth);
+        calendarYear.value = String(initialYear);
+
+        const rerender = () => {
+          renderCalendar(Number(calendarYear.value), Number(calendarMonth.value));
+        };
+
+        calendarMonth.addEventListener("change", rerender);
+        calendarYear.addEventListener("change", rerender);
+        rerender();
+        const todayKey = `${initialYear}-${String(initialMonth + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        renderEntry(todayKey);
+      } else {
+        renderCalendar(initialYear, initialMonth);
+        const todayKey = `${initialYear}-${String(initialMonth + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        renderEntry(todayKey);
+      }
+
+      const happinessDates = {{ happiness_dates|tojson }};
+      const happinessValues = {{ happiness_values|tojson }};
+      const axisColor = getComputedStyle(document.body).getPropertyValue("--muted");
+      const lineColor = getComputedStyle(document.body).getPropertyValue("--accent");
+
+      const chartEl = document.getElementById("happinessChart");
+      if (chartEl) {
+        new Chart(chartEl, {
+          type: "line",
+          data: {
+            labels: happinessDates,
+            datasets: [
+              {
+                label: "Happiness",
+                data: happinessValues,
+                borderColor: lineColor,
+                backgroundColor: "transparent",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: { ticks: { color: axisColor } },
+              y: { ticks: { color: axisColor }, suggestedMin: 0, suggestedMax: 10 },
+            },
+            plugins: { legend: { labels: { color: axisColor } } },
+          },
+        });
+      }
+    </script>
+  </body>
+</html>
+
+

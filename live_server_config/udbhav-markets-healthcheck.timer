@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Udbhav Markets watchdog every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Persistent=true
+Unit=udbhav-markets-healthcheck.service
+
+[Install]
+WantedBy=timers.target

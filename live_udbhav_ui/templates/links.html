@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Important Links</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
+
+      :root {
+        color-scheme: light;
+        --bg: #f3efe7;
+        --panel: #fffdf8;
+        --ink: #1c1b1a;
+        --muted: #5b5854;
+        --accent: #b44b30;
+        --accent-2: #2f6f68;
+        --border: #e2d7c7;
+        --shadow: 0 18px 40px rgba(28, 27, 26, 0.12);
+      }
+
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #12110f;
+        --panel: #1c1a17;
+        --ink: #f4efe7;
+        --muted: #b4aa9c;
+        --accent: #e07a5f;
+        --accent-2: #7bc4b8;
+        --border: #2b2621;
+        --shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        min-height: 100vh;
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at top left, #fff7ed 0%, var(--bg) 55%, #efe7db 100%);
+        padding: 32px 20px 60px;
+      }
+
+      body[data-theme="dark"] {
+        background: radial-gradient(circle at top left, #2a1f1a 0%, var(--bg) 55%, #0f0e0c 100%);
+      }
+
+      header,
+      nav,
+      .content {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+      }
+
+      
+
+      
+
+      nav a {
+        text-decoration: none;
+        color: var(--ink);
+        border: 1px solid var(--border);
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-size: 13px;
+      }
+
+      nav a.active {
+        background: var(--accent);
+        color: white;
+        border-color: var(--accent);
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        margin-bottom: 18px;
+      }
+
+      input,
+      textarea,
+      select {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        font-family: inherit;
+        background: transparent;
+        color: var(--ink);
+      }
+
+      textarea {
+        grid-column: 1 / -1;
+        min-height: 80px;
+      }
+
+      button {
+        padding: 12px 16px;
+        border-radius: 999px;
+        border: none;
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .link-card {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 16px;
+        background: var(--panel);
+      }
+
+      .link-
+
+      .favicon {
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+      }
+
+      .link-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+      }
+
+      .secondary {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+      }
+
+      .preview {
+        margin-top: 12px;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+      }
+
+      .preview iframe {
+        width: 100%;
+        height: 320px;
+        border: 0;
+      }
+
+      .pill {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+      }
+
+      .theme-toggle,
+      .logout {
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        padding: 8px 14px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+    
+      
+      }
+
+    
+      
+
+      
+
+      body[data-theme="dark"] 
+
+      
+
+      body[data-theme="dark"] 
+
+      .ticker-card .tradingview-widget-container,
+      .ticker-card .tradingview-widget-container__widget {
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        height: 64px !important;
+        min-height: 64px !important;
+      }
+
+      .ticker-title {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--accent-2);
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+
+      .news-list {
+        display: grid;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .news-list a {
+        color: var(--ink);
+        text-decoration: none;
+        border-bottom: 1px dashed transparent;
+        line-height: 1.3;
+      }
+
+      .news-list a:hover {
+        border-bottom-color: var(--accent);
+      }
+
+    
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      nav {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .intro {
+        max-width: 1200px;
+        margin: 0 auto 26px;
+        display: grid;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: var(--shadow);
+      }
+
+      .grid {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 20px;
+      }
+
+      .ticker-strip {
+        max-width: 1200px;
+        margin: 0 auto 24px;
+        padding: 0;
+      }
+
+      .ticker-card {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        width: 100%;
+      }
+
+      .ticker-card .tradingview-widget-container,
+      .ticker-card .tradingview-widget-container__widget {
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        width: 100% !important;
+        height: 64px !important;
+        min-height: 64px !important;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div style="font-weight:700; letter-spacing:0.08em; text-transform:uppercase;">Important Links</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size:12px; color: var(--accent-2);">{{ username }}</div>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <button class="theme-toggle" type="button" id="themeToggle">Toggle theme</button>
+        <form method="post" action="{{ url_for('logout') }}">
+          <button class="logout" type="submit">Log out</button>
+        </form>
+      </div>
+    </header>
+
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Home</a>
+      <a href="{{ url_for('diary') }}">Diary</a>
+      <a href="{{ url_for('strategies') }}">Strategies</a>
+      <a href="{{ url_for('journal') }}">Trading Journal</a>
+      <a href="{{ url_for('bot') }}">Trading Bot</a>
+      <a href="{{ url_for('bitcoin') }}">Bitcoin</a>
+      <a class="active" href="{{ url_for('links') }}">Important Links</a>
+      <a href="{{ url_for('collage') }}">Collage</a>
+      <select id="pageJump" style="margin-left:auto; padding:6px 10px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--ink); font-size:12px;">
+        <option value="">Jump to…</option>
+        <option value="{{ url_for('dashboard') }}">Home</option>
+        <option value="{{ url_for('diary') }}">Diary</option>
+        <option value="{{ url_for('strategies') }}">Strategies</option>
+        <option value="{{ url_for('journal') }}">Trading Journal</option>
+        <option value="{{ url_for('bot') }}">Trading Bot</option>
+        <option value="{{ url_for('bitcoin') }}">Bitcoin</option>
+        <option value="{{ url_for('links') }}">Important Links</option>
+        <option value="{{ url_for('collage') }}">Collage</option>
+      </select>
+    </nav>
+
+
+    <section class="ticker-strip">
+      <div class="ticker-card">
+        <div class="ticker-title">Market pulse</div>
+        <div class="tradingview-widget-container">
+          <div class="tradingview-widget-container__widget"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js" async>
+          {
+            "symbols": [
+                        {
+                                    "proName": "COINBASE:BTCUSDC",
+                                    "title": "BTCUSDC"
+                        },
+                        {
+                                    "proName": "NASDAQ:IXIC",
+                                    "title": "NASDAQ"
+                        },
+                        {
+                                    "proName": "NASDAQ:META",
+                                    "title": "META"
+                        },
+                        {
+                                    "proName": "NASDAQ:GOOGL",
+                                    "title": "GOOGL"
+                        },
+                        {
+                                    "proName": "NASDAQ:OPEN",
+                                    "title": "OPEN"
+                        },
+                        {
+                                    "proName": "NASDAQ:TSLA",
+                                    "title": "TSLA"
+                        },
+                        {
+                                    "proName": "NASDAQ:NVDA",
+                                    "title": "NVDA"
+                        },
+                        {
+                                    "proName": "NASDAQ:NFLX",
+                                    "title": "NFLX"
+                        },
+                        {
+                                    "proName": "NASDAQ:AMZN",
+                                    "title": "AMZN"
+                        },
+                        {
+                                    "proName": "NASDAQ:MSFT",
+                                    "title": "MSFT"
+                        },
+                        {
+                                    "proName": "OANDA:XAUUSD",
+                                    "title": "XAUUSD"
+                        },
+                        {
+                                    "proName": "OANDA:XAGUSD",
+                                    "title": "XAGUSD"
+                        }
+            ],
+            "showSymbolLogo": true,
+            "colorTheme": "dark",
+            "isTransparent": false,
+            "displayMode": "compact",
+            "locale": "en"
+}
+          </script>
+        </div>
+      </div>
+    </section>
+
+<section class="content panel">
+      <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom:16px;">
+        <input id="linkSearch" type="text" placeholder="Search links" />
+        <input id="tagSearch" type="text" placeholder="Filter by tag" />
+        <select id="groupFilter">
+          <option value="">All groups</option>
+          <option value="Research">Research</option>
+          <option value="Execution">Execution</option>
+          <option value="Tools">Tools</option>
+          <option value="Inspiration">Inspiration</option>
+        </select>
+      </div>
+
+      <form method="post" action="{{ url_for('links') }}">
+        <input type="text" name="title" placeholder="Link title" />
+        <select name="group">
+          <option value="">Group</option>
+          <option value="Research">Research</option>
+          <option value="Execution">Execution</option>
+          <option value="Tools">Tools</option>
+          <option value="Inspiration">Inspiration</option>
+        </select>
+        <input type="text" name="tags" placeholder="Tags (comma separated)" />
+        <input type="url" name="url" placeholder="https://" required />
+        <textarea name="note" placeholder="Notes or why this matters"></textarea>
+        <input type="hidden" name="action" value="add" />
+        <button type="submit">Save link</button>
+      </form>
+
+      {% for item in items %}
+      <div class="link-card" data-title="{{ item.title|lower }}" data-tags="{{ item.tags|lower }}" data-group="{{ item.group|lower }}">
+        <div class="link-header">
+          <img class="favicon" src="https://www.google.com/s2/favicons?domain={{ item.url }}" alt="" />
+          <div style="font-weight:700;">{{ item.title or "Untitled" }}</div>
+          {% if item.group %}
+          <div class="pill">{{ item.group }}</div>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('links') }}">
+          <input type="hidden" name="id" value="{{ item.id }}" />
+          <input type="hidden" name="action" value="update" />
+          <input type="text" name="title" placeholder="Link title" value="{{ item.title }}" />
+          <select name="group">
+            <option value="">Group</option>
+            <option value="Research" {% if item.group == 'Research' %}selected{% endif %}>Research</option>
+            <option value="Execution" {% if item.group == 'Execution' %}selected{% endif %}>Execution</option>
+            <option value="Tools" {% if item.group == 'Tools' %}selected{% endif %}>Tools</option>
+            <option value="Inspiration" {% if item.group == 'Inspiration' %}selected{% endif %}>Inspiration</option>
+          </select>
+          <input type="text" name="tags" placeholder="Tags (comma separated)" value="{{ item.tags }}" />
+          <input type="url" name="url" placeholder="https://" required value="{{ item.url }}" />
+          <textarea name="note" placeholder="Notes or why this matters">{{ item.note }}</textarea>
+          <div class="link-actions">
+            <button type="submit">Update</button>
+          </div>
+        </form>
+        <form method="post" action="{{ url_for('links') }}" class="link-actions">
+          <input type="hidden" name="id" value="{{ item.id }}" />
+          <input type="hidden" name="action" value="delete" />
+          <button type="submit" class="secondary">Remove</button>
+          <a href="{{ item.url }}" target="_blank" rel="noopener" class="secondary" style="padding:10px 14px; border-radius:999px; text-decoration:none;">Open</a>
+        </form>
+        <p style="margin-top:10px; color: var(--muted); font-size:12px;">Preview may be blocked by some sites. If the preview fails, use Open.</p>
+        <div class="preview">
+          <iframe src="{{ item.url }}" title="Preview"></iframe>
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+
+    <footer style="max-width:1200px; margin:24px auto 0; font-size:12px; color: var(--muted); display:flex; gap:12px; flex-wrap:wrap;">
+      <span>Udbhav.uk</span>
+      <a href="{{ url_for('privacy') }}">Privacy</a>
+      <a href="{{ url_for('terms') }}">Terms</a>
+    </footer>
+
+    <script>
+      const themeToggle = document.getElementById("themeToggle");
+      const storedTheme = localStorage.getItem("udbhav-theme");
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      const currentTheme = storedTheme || systemTheme;
+      document.body.dataset.theme = currentTheme === "dark" ? "dark" : "light";
+
+      themeToggle.addEventListener("click", () => {
+        const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+        document.body.dataset.theme = nextTheme;
+        localStorage.setItem("udbhav-theme", nextTheme);
+      });
+
+      const linkSearch = document.getElementById("linkSearch");
+      const tagSearch = document.getElementById("tagSearch");
+      const groupFilter = document.getElementById("groupFilter");
+      const linkCards = Array.from(document.querySelectorAll(".link-card"));
+
+      const filterLinks = () => {
+        const query = (linkSearch.value || "").toLowerCase().trim();
+        const tagQuery = (tagSearch.value || "").toLowerCase().trim();
+        const group = (groupFilter.value || "").toLowerCase().trim();
+        linkCards.forEach((card) => {
+          const title = card.dataset.title || "";
+          const tags = card.dataset.tags || "";
+          const groupValue = card.dataset.group || "";
+          const matchesText = !query || title.includes(query);
+          const matchesTags = !tagQuery || tags.includes(tagQuery);
+          const matchesGroup = !group || groupValue === group;
+          card.style.display = matchesText && matchesTags && matchesGroup ? "" : "none";
+        });
+      };
+
+      [linkSearch, tagSearch, groupFilter].forEach((input) => {
+        if (input) {
+          input.addEventListener("input", filterLinks);
+          input.addEventListener("change", filterLinks);
+        }
+      });
+
+      const pageJump = document.getElementById("pageJump");
+      if (pageJump) {
+        pageJump.addEventListener("change", () => {
+          if (pageJump.value) {
+            window.location.href = pageJump.value;
+          }
+        });
+      }
+    </script>
+  
+
+
+
+
+
+
+
+
+</body>
+</html>
+
+

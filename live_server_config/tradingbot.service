@@ -1,0 +1,13 @@
+[Unit]
+Description=Trading Bot Webhook Server
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+ExecStart=/home/ubuntu/botenv/bin/gunicorn --bind 127.0.0.1:5000 python_server:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

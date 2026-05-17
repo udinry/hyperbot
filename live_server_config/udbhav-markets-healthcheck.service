@@ -1,0 +1,9 @@
+[Unit]
+Description=Udbhav Markets watchdog
+After=network-online.target udbhav-markets.service nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/udbhav-markets-healthcheck.sh
+User=root
