@@ -7,11 +7,12 @@ Finance tooling: a Flask news-aggregator backend, the **Monoth** real-time dashb
 ```
 hyperbot/
 ├── udbhav_app.py          # Flask backend — RSS feeds, Hyperliquid vault data, Google OAuth
-├── live_udbhav_ui/        # Alternate Flask UI (app.py + templates/)
+├── live_udbhav_ui/        # Alternate Flask UI (app.py + templates/) — deployed at udbhav.uk
 ├── live_server_config/    # systemd + nginx config for production server
 ├── monoth_src/            # Monoth dashboard (React 18 + Vite + Vercel serverless)
 ├── hyperliquid-python-sdk/ # Local copy of HL Python SDK
 ├── hft_bot/               # OFI+TFI HFT bot for BTC on Hyperliquid (see below)
+├── hyperbot_ui/           # Management UI — start/stop bot, PnL, trades (deployed at udbhav.uk/hyperbot)
 └── quotes.csv             # Quote data used by Flask backend
 ```
 
@@ -219,9 +220,20 @@ npm run build
 
 ### Production deployment (live_server_config/)
 - `udbhav-markets.service` — runs Flask backend via systemd
-- `udbhav-ui.service` — runs the UI
+- `udbhav-ui.service` — runs the main udbhav.uk site (port 8000, /opt/udbhav-ui/)
 - `nginx_udbhav-ui.conf` — reverse proxy config
 - `udbhav-markets-healthcheck.*` — systemd timer for health checks
+- `hyperbot-bot.service` — runs hft_bot/main.py (start/stop only — Restart=no so circuit breaker exits cleanly)
+- `hyperbot-ui.service` — management UI Flask app on port 5001 (/opt/hyperbot/hyperbot_ui/)
+
+### VPS: ubuntu@92.4.75.27
+- `/opt/hyperbot/` — clone of this repo (owned by ubuntu)
+- `/opt/hyperbot/.env` — secrets (PRIVATE_KEY, HYPERLIQUID_API_URL=mainnet, COIN=BTC)
+- `/opt/hyperbot/.venv/` — Python venv with all deps
+- Management UI live at `https://udbhav.uk/hyperbot` (nginx basic auth)
+- Bot logs at `/opt/hyperbot/hft_bot/bot.log`
+- To deploy updates: `ssh VPS "cd /opt/hyperbot && git pull && sudo systemctl restart hyperbot-ui"`
+- To SSH: `ssh -i ~/Downloads/ssh-key-2026-02-03.key ubuntu@92.4.75.27`
 
 ## General
 - Avoid OpenAI SDK imports; this project does not use the OpenAI API
