@@ -1,28 +1,28 @@
 """
-Paper trader — runs the OFI+TFI strategy against LIVE mainnet data without
-placing any real orders.
+Paper trader — realistic ALO simulation on live Hyperliquid mainnet data.
 
-Connects to the Hyperliquid mainnet WebSocket, subscribes to l2Book and
-trades, then runs the exact same signal engine as the live bot.
+Fill model
+----------
+  Signal fires → post ALO limit 1 tick inside the spread:
+    BUY  → bid + PRICE_TICK   (e.g. 76999.60 when bid=76999.50, ask=77000.50)
+    SELL → ask - PRICE_TICK   (e.g. 77000.40)
 
-Fill model (IOC, pessimistic):
-  BUY  signal → "filled" at best ask (taker crosses the spread)
-  SELL signal → "filled" at best bid
+  Fill tracking (via live trade stream):
+    BUY  limit fills when a seller-initiated trade (side='A') prints at ≤ our price
+    SELL limit fills when a buyer-initiated trade (side='B') prints at ≥ our price
 
-Forward return tracking:
-  At T+100ms, T+250ms, T+500ms, T+1000ms relative to each signal, we record
-  where the mid-price moved.
+  Order expires after LIMIT_ORDER_TIMEOUT_MS if no fill event received.
 
-Capital-risk metrics reported:
-  - Notional at risk per trade  = ORDER_SIZE_BTC × fill_price
-  - PnL_bps  = (PnL_USD / notional) × 10_000        (basis-points on capital)
-  - Return on capital (%) net of estimated taker fees
-  - Profit factor = gross_wins / gross_losses
-  - Kelly criterion fraction
+PnL model
+----------
+  Closed at T+1000ms after fill via ALO (earn maker rebate both legs).
+  Fees: MAKER_REBATE = -0.01% per leg (we receive this).
+  Spread contribution: buying below mid / selling above mid earns half the spread.
 
-Usage:
+Usage
+-----
   cd hft_bot
-  python paper_trader.py              # runs for 120 seconds
+  python paper_trader.py              # 120s default
   python paper_trader.py --duration 300
 """
 from __future__ import annotations
@@ -45,10 +45,10 @@ import config
 from state import BotState, Level, OrderBook
 from strategy import compute_price_trend, compute_tfi, evaluate_signal, ingest_trade, process_book_update
 
-PAPER_API_URL = "https://api.hyperliquid.xyz"
-
-# Hyperliquid taker fee (IOC / market orders).
-TAKER_FEE_RATE = 0.00035   # 0.035 %
+PAPER_API_URL   = "https://api.hyperliquid.xyz"
+MAKER_REBATE    = 0.0001   # -0.01% per leg (Hyperliquid maker)
+TAKER_FEE       = 0.00035  # +0.035% per leg (for comparison)
+HORIZONS_MS     = [250, 500, 1000, 2000]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,60 +58,111 @@ logging.basicConfig(
 logger = logging.getLogger("paper_trader")
 
 
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 # Data structures
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
-class Signal:
-    ts_ms: int
-    direction: str
-    ofi: float
-    tfi: Optional[float]
-    trend: Optional[float]         # 3-second price trend at signal time ($)
-    fill_price: float
-    mid_at_signal: float
-    spread_at_signal: float
-    notional_usd: float            # ORDER_SIZE_BTC × fill_price
-    forward: Dict[int, Optional[float]] = field(default_factory=dict)
+class PendingAlo:
+    """An ALO order waiting for a fill event from the trade stream."""
+    direction:   str          # 'buy' | 'sell'
+    limit_price: float        # bid+tick or ask-tick
+    notional:    float        # ORDER_SIZE_BTC × limit_price
+    ofi:         float
+    tfi:         Optional[float]
+    trend:       Optional[float]
+    spread_at:   float
+    mid_at:      float
+    signal_ms:   int
+    expire_ms:   int          # signal_ms + LIMIT_ORDER_TIMEOUT_MS
 
 
-HORIZONS_MS = [100, 250, 500, 1000]
+@dataclass
+class FilledTrade:
+    """A filled ALO trade with forward-return snapshots."""
+    direction:   str
+    fill_price:  float
+    notional:    float
+    ofi:         float
+    tfi:         Optional[float]
+    trend:       Optional[float]
+    spread_at:   float
+    mid_at_fill: float
+    fill_ms:     int
+    forward:     Dict[int, Optional[float]] = field(default_factory=dict)
+
+    @property
+    def entry_latency_ms(self) -> int:
+        return 0  # placeholder
 
 
-# ---------------------------------------------------------------------------
-# Paper trading engine
-# ---------------------------------------------------------------------------
+@dataclass
+class ExpiredOrder:
+    direction:   str
+    limit_price: float
+    notional:    float
+    ofi:         float
+    signal_ms:   int
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Engine
+# ─────────────────────────────────────────────────────────────────────────────
 
 class PaperTrader:
     def __init__(self, duration_s: float = 120.0) -> None:
-        self.duration_s = duration_s
-        self.state      = BotState()
+        self.duration_s   = duration_s
+        self.state        = BotState()
         self.state.status = __import__("state").BotStatus.RUNNING
 
-        self._pending: List[Tuple[Signal, List[Tuple[int, int]]]] = []
-        self._mid_history: Deque[Tuple[int, float]] = deque(maxlen=5000)
-        self.signals: List[Signal] = []
+        self._pending_alo: List[PendingAlo]  = []
+        self._filled:      List[FilledTrade] = []
+        self._expired:     List[ExpiredOrder] = []
+
+        # forward-return tracking: (FilledTrade, [(horizon_ms, deadline_wall_ms)])
+        self._fwd_pending: List[Tuple[FilledTrade, List[Tuple[int, int]]]] = []
+
+        self._last_mid: Optional[float] = None
+
+    # ── Book update ──────────────────────────────────────────────────────────
 
     def on_book(self, book: OrderBook) -> None:
-        mid = book.mid_price()
-        if mid:
-            self._mid_history.append((book.timestamp_ms, mid))
+        now_wall = int(time.time() * 1000)
+        mid      = book.mid_price()
 
-        # Resolve pending forward-return snapshots.
-        now_ms = int(time.time() * 1000)
-        for sig, pending_horizons in self._pending:
-            still_pending = []
-            for horizon_ms, deadline_ms in pending_horizons:
-                if now_ms >= deadline_ms:
-                    sig.forward[horizon_ms] = mid
-                else:
-                    still_pending.append((horizon_ms, deadline_ms))
-            pending_horizons[:] = still_pending
-        self._pending = [(s, ph) for s, ph in self._pending if ph]
+        # 1. Resolve forward-return snapshots for filled trades.
+        if mid is not None:
+            for trade, horizons in self._fwd_pending:
+                remaining = []
+                for h, deadline in horizons:
+                    if now_wall >= deadline:
+                        trade.forward[h] = mid
+                    else:
+                        remaining.append((h, deadline))
+                horizons[:] = remaining
+            self._fwd_pending = [(t, h) for t, h in self._fwd_pending if h]
 
+        # 2. Expire stale ALO orders.
+        still_pending = []
+        for order in self._pending_alo:
+            if now_wall >= order.expire_ms:
+                logger.info("ALO expired  | %s @ %.2f (%.0fms)",
+                            order.direction, order.limit_price,
+                            now_wall - order.signal_ms)
+                self._expired.append(ExpiredOrder(
+                    direction   = order.direction,
+                    limit_price = order.limit_price,
+                    notional    = order.notional,
+                    ofi         = order.ofi,
+                    signal_ms   = order.signal_ms,
+                ))
+            else:
+                still_pending.append(order)
+        self._pending_alo = still_pending
+
+        # 3. Compute OFI and evaluate signal.
         ofi = process_book_update(self.state, book)
-        if ofi is None:
+        if ofi is None or not self.state.is_running():
             return
 
         direction = evaluate_signal(self.state, ofi)
@@ -121,217 +172,274 @@ class PaperTrader:
         best_bid = book.best_bid()
         best_ask = book.best_ask()
         if direction == "buy":
-            if best_ask is None:
+            if best_bid is None or best_ask is None:
                 return
-            fill_px = best_ask.price
+            limit_price = best_bid.price + config.PRICE_TICK
+            if limit_price >= best_ask.price:   # would cross — cap just inside
+                limit_price = best_ask.price - config.PRICE_TICK
         else:
-            if best_bid is None:
+            if best_bid is None or best_ask is None:
                 return
-            fill_px = best_bid.price
+            limit_price = best_ask.price - config.PRICE_TICK
+            if limit_price <= best_bid.price:
+                limit_price = best_bid.price + config.PRICE_TICK
 
-        spread_val  = book.spread() or 0.0
-        tfi         = compute_tfi(self.state)
-        trend       = compute_price_trend(self.state)
-        notional    = config.ORDER_SIZE_BTC * fill_px
+        tfi   = compute_tfi(self.state)
+        trend = compute_price_trend(self.state)
 
-        sig = Signal(
-            ts_ms=book.timestamp_ms,
-            direction=direction,
-            ofi=ofi,
-            tfi=tfi,
-            trend=trend,
-            fill_price=fill_px,
-            mid_at_signal=mid or fill_px,
-            spread_at_signal=spread_val,
-            notional_usd=notional,
+        order = PendingAlo(
+            direction   = direction,
+            limit_price = limit_price,
+            notional    = config.ORDER_SIZE_BTC * limit_price,
+            ofi         = ofi,
+            tfi         = tfi,
+            trend       = trend,
+            spread_at   = book.spread() or 0.0,
+            mid_at      = mid or limit_price,
+            signal_ms   = now_wall,
+            expire_ms   = now_wall + config.LIMIT_ORDER_TIMEOUT_MS,
         )
-        self.signals.append(sig)
-
-        now_ms = int(time.time() * 1000)
-        self._pending.append((sig, [(h, now_ms + h) for h in HORIZONS_MS]))
+        self._pending_alo.append(order)
 
         logger.info(
-            "%s | OFI=%+.4f TFI=%s trend=%s$ fill=%.2f spread=%.2f$ notional=$%.2f",
-            direction.upper(),
-            ofi,
+            "SIGNAL %s | OFI=%+.4f TFI=%s trend=%s$ "
+            "limit=%.2f bid=%.2f ask=%.2f spread=%.2f$",
+            direction.upper(), ofi,
             f"{tfi:+.3f}" if tfi is not None else "N/A",
             f"{trend:+.2f}" if trend is not None else "N/A",
-            fill_px,
-            spread_val,
-            notional,
+            limit_price,
+            best_bid.price, best_ask.price,
+            book.spread() or 0,
         )
+
+    # ── Trade update ─────────────────────────────────────────────────────────
 
     def on_trade(self, trade: dict) -> None:
         ingest_trade(self.state, trade)
 
-    # ------------------------------------------------------------------
-    def report(self) -> None:
-        n = len(self.signals)
-        sep = "=" * 72
-        logger.info(sep)
-        logger.info("PAPER TRADING REPORT  (signals=%d)", n)
-        logger.info(sep)
-
-        if n == 0:
-            logger.info("No signals — try lower thresholds or longer duration.")
+        if not self._pending_alo:
             return
 
-        buys  = [s for s in self.signals if s.direction == "buy"]
-        sells = [s for s in self.signals if s.direction == "sell"]
-        avg_notional = sum(s.notional_usd for s in self.signals) / n
-        logger.info("Buys: %d  Sells: %d  |  avg notional/trade: $%.2f", len(buys), len(sells), avg_notional)
+        try:
+            side      = trade.get("side", "")
+            px        = float(trade.get("px", 0))
+            trade_ms  = int(trade.get("time", time.time() * 1000))
+        except (ValueError, TypeError):
+            return
+
+        still_pending = []
+        now_wall      = int(time.time() * 1000)
+
+        for order in self._pending_alo:
+            filled = False
+            if order.direction == "buy"  and side == "A" and px <= order.limit_price:
+                filled = True
+            elif order.direction == "sell" and side == "B" and px >= order.limit_price:
+                filled = True
+
+            if filled:
+                # Use the trade price as the actual fill (could be better than limit).
+                actual_fill = min(px, order.limit_price) if order.direction == "buy" \
+                              else max(px, order.limit_price)
+                mid_now = self.state.book.mid_price()
+
+                ft = FilledTrade(
+                    direction   = order.direction,
+                    fill_price  = actual_fill,
+                    notional    = config.ORDER_SIZE_BTC * actual_fill,
+                    ofi         = order.ofi,
+                    tfi         = order.tfi,
+                    trend       = order.trend,
+                    spread_at   = order.spread_at,
+                    mid_at_fill = mid_now or actual_fill,
+                    fill_ms     = now_wall,
+                )
+                self._filled.append(ft)
+                self._fwd_pending.append(
+                    (ft, [(h, now_wall + h) for h in HORIZONS_MS])
+                )
+                logger.info(
+                    "FILL   %s | limit=%.2f actual=%.2f mid=%.2f latency=%dms",
+                    order.direction.upper(), order.limit_price, actual_fill,
+                    mid_now or 0, now_wall - order.signal_ms,
+                )
+            else:
+                still_pending.append(order)
+
+        self._pending_alo = still_pending
+
+    # ── Report ───────────────────────────────────────────────────────────────
+
+    def report(self) -> None:
+        sep = "═" * 74
+        logger.info(sep)
+        logger.info("  PAPER TRADE REPORT  —  Hyperliquid mainnet BTC ALO (1-tick inside spread)")
+        logger.info(sep)
+
+        n_sig     = len(self._filled) + len(self._expired) + len(self._pending_alo)
+        n_filled  = len(self._filled)
+        n_expired = len(self._expired)
+        n_pending = len(self._pending_alo)   # still waiting at session end
+        fill_rate = n_filled / n_sig * 100 if n_sig else 0
+
+        buys  = [t for t in self._filled if t.direction == "buy"]
+        sells = [t for t in self._filled if t.direction == "sell"]
+
+        logger.info("  Signals fired : %d  (buys=%d sells=%d)", n_sig,
+                    len([o for o in self._filled+[ExpiredOrder(o.direction,0,0,0,0) for o in self._expired] if True]),
+                    0)
+        # Redo buy/sell counts across all outcomes
+        all_dirs = (
+            [t.direction for t in self._filled]
+            + [e.direction for e in self._expired]
+            + [p.direction for p in self._pending_alo]
+        )
+        n_buy_sig  = all_dirs.count("buy")
+        n_sell_sig = all_dirs.count("sell")
+        logger.info("  Signals       : %d total (buy=%d, sell=%d)", n_sig, n_buy_sig, n_sell_sig)
+        logger.info("  Filled        : %d  (%.0f%%)  Expired: %d  Still-pending: %d",
+                    n_filled, fill_rate, n_expired, n_pending)
+        logger.info("  Filled buys   : %d   Filled sells: %d", len(buys), len(sells))
+
+        if n_filled == 0:
+            logger.info("  No fills — market too quiet or thresholds too high.")
+            logger.info(sep)
+            return
+
+        avg_notional = sum(t.notional for t in self._filled) / n_filled
+        logger.info("  Avg notional  : $%.2f / trade  (%.4f BTC @ ~$%.0f)",
+                    avg_notional, config.ORDER_SIZE_BTC, avg_notional / config.ORDER_SIZE_BTC)
         logger.info("")
 
-        # --- Per-horizon analysis ---
+        # ── Per-horizon tables ────────────────────────────────────────────────
+        logger.info("  %-8s  %-4s  %-6s  %-10s  %-10s  %-11s  %-7s  %-6s  %-7s",
+                    "Horizon", "n", "Acc%", "avg_raw$", "avg_net$",
+                    "total_net$", "bps_net", "PF", "Kelly%")
+        logger.info("  " + "─" * 70)
+
+        best_h_data = None   # for per-trade table
+
         for h in HORIZONS_MS:
-            resolved = [s for s in self.signals if s.forward.get(h) is not None]
+            resolved = [t for t in self._filled if t.forward.get(h) is not None]
             if not resolved:
                 continue
 
-            pnl_raw_list:  List[float] = []   # $ before fees
-            pnl_net_list:  List[float] = []   # $ after fees
-            pnl_bps_list:  List[float] = []   # bps on notional
+            raw_list, net_list, bps_list = [], [], []
             correct = 0
 
-            for s in resolved:
-                fwd_mid  = s.forward[h]
-                if fwd_mid is None:
-                    continue
-                ret       = fwd_mid - s.mid_at_signal
-                half_spr  = s.spread_at_signal / 2
-                direction_mult = 1 if s.direction == "buy" else -1
-                pnl_pts   = direction_mult * ret - half_spr    # spread-adjusted, per BTC
-                pnl_usd   = pnl_pts * config.ORDER_SIZE_BTC
+            for t in resolved:
+                fwd   = t.forward[h]
+                ret   = fwd - t.mid_at_fill
+                dm    = 1 if t.direction == "buy" else -1
 
-                # Taker fee both legs (entry + exit assumed taker).
-                fee_usd   = 2 * TAKER_FEE_RATE * s.notional_usd
-                pnl_net   = pnl_usd - fee_usd
+                # ALO: we filled below (buy) or above (sell) mid → earn half-spread
+                half_spr  = t.spread_at / 2
+                pnl_pts   = dm * ret + half_spr        # per BTC
+                pnl_raw   = pnl_pts * config.ORDER_SIZE_BTC
+                rebate    = 2 * MAKER_REBATE * t.notional
+                pnl_net   = pnl_raw + rebate            # rebate is positive (we earn)
+                bps       = (pnl_net / t.notional) * 10_000
 
-                bps = (pnl_usd / s.notional_usd) * 10_000
-
-                pnl_raw_list.append(pnl_usd)
-                pnl_net_list.append(pnl_net)
-                pnl_bps_list.append(bps)
-
-                moved_right = (ret > 0 and s.direction == "buy") or (ret < 0 and s.direction == "sell")
-                if moved_right:
+                raw_list.append(pnl_raw)
+                net_list.append(pnl_net)
+                bps_list.append(bps)
+                if (ret > 0 and dm == 1) or (ret < 0 and dm == -1):
                     correct += 1
 
-            if not pnl_raw_list:
-                continue
-
-            nr       = len(pnl_raw_list)
+            nr       = len(raw_list)
             acc      = correct / nr * 100
-            avg_raw  = sum(pnl_raw_list) / nr
-            avg_net  = sum(pnl_net_list) / nr
-            total_net = sum(pnl_net_list)
-            avg_bps  = sum(pnl_bps_list) / nr
-
-            wins  = [p for p in pnl_raw_list if p > 0]
-            loses = [p for p in pnl_raw_list if p <= 0]
-            pf    = sum(wins) / (-sum(loses)) if loses and sum(loses) < 0 else float("inf")
+            avg_raw  = sum(raw_list) / nr
+            avg_net  = sum(net_list) / nr
+            total_net = sum(net_list)
 
             try:
-                stdev = statistics.stdev(pnl_bps_list)
-                sharpe_per_trade = avg_bps / stdev if stdev > 0 else 0.0
+                avg_bps = sum(bps_list) / nr
             except Exception:
-                sharpe_per_trade = 0.0
+                avg_bps = 0
 
-            win_rate = acc / 100
-            avg_win  = sum(wins) / len(wins) if wins else 0
-            avg_loss = abs(sum(loses) / len(loses)) if loses else 0
-            # Kelly: f* = p - (1-p) / b   where b = avg_win / avg_loss
-            b     = (avg_win / avg_loss) if avg_loss > 0 else float("inf")
-            kelly = max(0.0, win_rate - (1 - win_rate) / b) if b != float("inf") else win_rate
+            wins  = [p for p in net_list if p > 0]
+            loses = [p for p in net_list if p <= 0]
+            pf    = sum(wins) / (-sum(loses)) if loses and sum(loses) < 0 else float("inf")
 
-            logger.info(
-                "T+%4dms | n=%2d | acc=%.0f%% | "
-                "pnl_raw=$%.4f | pnl_net=$%.4f | total_net=$%.4f | "
-                "bps/trade=%.2f | PF=%.2f | kelly=%.1f%%",
-                h, nr, acc,
-                avg_raw, avg_net, total_net,
-                avg_bps, pf, kelly * 100,
-            )
+            w_rate = acc / 100
+            avg_w  = sum(wins) / len(wins) if wins else 0
+            avg_l  = abs(sum(loses) / len(loses)) if loses else 0
+            b_ratio = (avg_w / avg_l) if avg_l > 0 else float("inf")
+            kelly   = max(0.0, w_rate - (1 - w_rate) / b_ratio) * 100 if b_ratio != float("inf") else w_rate * 100
 
+            pf_str    = f"{pf:.2f}" if pf != float("inf") else "∞"
+            kelly_str = f"{kelly:.1f}"
+
+            logger.info("  %-8s  %-4d  %-6.1f  %-10.4f  %-10.4f  %-11.4f  %-7.2f  %-6s  %-7s",
+                        f"T+{h}ms", nr, acc, avg_raw, avg_net, total_net, avg_bps, pf_str, kelly_str)
+
+            if h == 1000 or (best_h_data is None):
+                best_h_data = (h, resolved, net_list)
+
+        # ── Per-trade table (T+1000ms) ────────────────────────────────────────
+        if best_h_data:
+            bh, bh_trades, bh_net = best_h_data
+            logger.info("")
+            logger.info("  Per-trade breakdown  (T+%dms):", bh)
+            logger.info("  %-5s  %-9s  %-9s  %-9s  %+7s  %-6s  %-8s  %-8s  %-4s",
+                        "Dir", "fill$", "mid@fill", "fwd_mid", "ret$", "bps",
+                        "pnl_raw$", "pnl_net$", "W/L")
+            logger.info("  " + "─" * 70)
+            for t, pnl_net in zip(bh_trades, bh_net):
+                fwd  = t.forward.get(bh)
+                ret  = (fwd - t.mid_at_fill) if fwd is not None else 0
+                dm   = 1 if t.direction == "buy" else -1
+                pnl_raw = (dm * ret + t.spread_at / 2) * config.ORDER_SIZE_BTC
+                rebate  = 2 * MAKER_REBATE * t.notional
+                bps     = (pnl_net / t.notional) * 10_000
+                wl      = "W" if pnl_net > 0 else "L"
+                logger.info("  %-5s  %-9.2f  %-9.2f  %-9.2f  %+7.2f  %+5.2f  %+8.4f  %+8.4f  %-4s",
+                            t.direction, t.fill_price, t.mid_at_fill,
+                            fwd or 0, ret, bps, pnl_raw, pnl_net, wl)
+
+            total_net = sum(bh_net)
+            logger.info("  " + "─" * 70)
+            logger.info("  %-35s  TOTAL net P&L: %+.4f$  (%+.2f bps avg)",
+                        "", total_net,
+                        (sum((p / t.notional) * 10_000 for t, p in zip(bh_trades, bh_net)) / len(bh_net) if bh_net else 0))
+
+        # ── Fee comparison ───────────────────────────────────────────────────
         logger.info("")
-        logger.info("Capital-risk breakdown (per-trade, T+1000ms focus):")
+        ex = self._filled[0]
+        alo_fee   = -2 * MAKER_REBATE * ex.notional   # negative = we earn
+        ioc_fee   =  2 * TAKER_FEE   * ex.notional
+        spread_vs = ex.spread_at * config.ORDER_SIZE_BTC
+        logger.info("  Fee comparison (per round-trip, $%.2f notional):", ex.notional)
+        logger.info("    ALO maker  : earn $%.4f rebate + earn $%.4f spread  = +$%.4f  (%+.2f bps)",
+                    -alo_fee, spread_vs, -alo_fee + spread_vs,
+                    (-alo_fee + spread_vs) / ex.notional * 10_000)
+        logger.info("    IOC taker  : pay  $%.4f fee   + pay  $%.4f spread  = -$%.4f  (%.2f bps)",
+                    ioc_fee, spread_vs, ioc_fee + spread_vs,
+                    (ioc_fee + spread_vs) / ex.notional * 10_000)
 
-        h = 1000
-        resolved = [s for s in self.signals if s.forward.get(h) is not None]
-        if resolved:
-            logger.info("  %-6s  %-8s  %-8s  %-8s  %-6s  %-8s  %-8s",
-                        "Dir", "fill", "fwd_mid", "ret$", "bps", "pnl_raw", "pnl_net")
-            for s in resolved:
-                fwd = s.forward[h]
-                if fwd is None:
-                    continue
-                ret   = fwd - s.mid_at_signal
-                dm    = 1 if s.direction == "buy" else -1
-                pnl_r = (dm * ret - s.spread_at_signal / 2) * config.ORDER_SIZE_BTC
-                fee   = 2 * TAKER_FEE_RATE * s.notional_usd
-                pnl_n = pnl_r - fee
-                bps   = (pnl_r / s.notional_usd) * 10_000
-                logger.info("  %-6s  %-8.2f  %-8.2f  %+7.2f  %+5.2f  %+8.4f  %+8.4f",
-                            s.direction, s.fill_price, fwd, ret, bps, pnl_r, pnl_n)
+        # ── Annualised estimate ───────────────────────────────────────────────
+        if best_h_data and sum(bh_net) != 0:
+            logger.info("")
+            filled_h  = 1000
+            trades_per_session = n_filled
+            session_dur_min    = self.duration_s / 60
+            trades_per_day     = trades_per_session / session_dur_min * 60 * 16   # 16h/day active
+            daily_pnl          = (sum(bh_net) / len(bh_net)) * trades_per_day
+            annual_pnl         = daily_pnl * 252
+            capital_deployed   = avg_notional * min(n_filled, 5)  # assume ≤5 concurrent
+            annual_ret_pct     = (annual_pnl / capital_deployed) * 100 if capital_deployed else 0
+            logger.info("  Annualised estimate (rough — same-conditions extrapolation):")
+            logger.info("    Fills/day  : ~%.0f  |  Net PnL/day: $%.4f  |  Annual P&L: $%.2f",
+                        trades_per_day, daily_pnl, annual_pnl)
+            logger.info("    Capital    : $%.2f deployed  →  Est. annual return: %.1f%%",
+                        capital_deployed, annual_ret_pct)
 
-        logger.info("")
-        # --- ALO (maker) model ---
-        # On mainnet, spread ≈ 1.3bps → live bot uses ALO (post-only).
-        # ALO BUY fills at bid (earn half-spread vs paying it with IOC).
-        # Maker rebate = -0.01% per leg.  Assume 75% fill rate within timeout.
-        MAKER_REBATE_RATE = 0.0001   # -0.01% = earn this per filled leg
-        ALO_FILL_RATE     = 0.75     # conservative: 75% of ALO orders fill
-
-        if resolved:
-            logger.info("ALO (maker) model  —  bid/ask fill, earn rebate, %.0f%% fill rate:", ALO_FILL_RATE * 100)
-            alo_pnl_list = []
-            for s in resolved:
-                fwd = s.forward[1000]
-                if fwd is None:
-                    continue
-                ret   = fwd - s.mid_at_signal
-                dm    = 1 if s.direction == "buy" else -1
-                # ALO fills at mid∓half_spread, so we earn half_spread per leg.
-                half_spr = s.spread_at_signal / 2
-                pnl_pts  = dm * ret + half_spr           # earn half-spread on entry
-                pnl_usd  = pnl_pts * config.ORDER_SIZE_BTC
-                rebate   = 2 * MAKER_REBATE_RATE * s.notional_usd  # earn both legs
-                pnl_alo  = (pnl_usd + rebate) * ALO_FILL_RATE      # scale by fill rate
-                bps_alo  = (pnl_alo / s.notional_usd) * 10_000
-                alo_pnl_list.append((pnl_alo, bps_alo))
-
-            if alo_pnl_list:
-                avg_alo     = sum(p for p, _ in alo_pnl_list) / len(alo_pnl_list)
-                total_alo   = sum(p for p, _ in alo_pnl_list)
-                avg_bps_alo = sum(b for _, b in alo_pnl_list) / len(alo_pnl_list)
-                logger.info("  T+1000ms | avg_pnl=$%.4f | total=$%.4f | bps/trade=%.2f | verdict: %s",
-                            avg_alo, total_alo, avg_bps_alo,
-                            "PROFITABLE ✓" if avg_alo > 0 else "STILL NEGATIVE ✗")
-
-        logger.info("")
-        # Notional risk context
-        sample = resolved[0] if resolved else None
-        if sample:
-            notional_ex   = sample.notional_usd
-            ioc_fee_ex    = 2 * TAKER_FEE_RATE * notional_ex
-            alo_rebate_ex = 2 * MAKER_REBATE_RATE * notional_ex
-            logger.info(
-                "Notional/trade: $%.2f  |  IOC round-trip fee: $%.4f (%.1fbps)  |  ALO rebate: +$%.4f (%.1fbps)",
-                notional_ex, ioc_fee_ex, (ioc_fee_ex / notional_ex) * 10_000,
-                alo_rebate_ex, (alo_rebate_ex / notional_ex) * 10_000,
-            )
-            logger.info(
-                "  → Break-even gross bps needed:  IOC=%.1fbps  |  ALO (earn spread)=%.1fbps",
-                (ioc_fee_ex / notional_ex) * 10_000,
-                max(0.0, (ioc_fee_ex - alo_rebate_ex - sample.spread_at_signal * config.ORDER_SIZE_BTC) / notional_ex * 10_000),
-            )
         logger.info(sep)
 
 
-
-# ---------------------------------------------------------------------------
-# WebSocket setup using Hyperliquid SDK
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# WebSocket runner
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_paper_trader(duration_s: float = 120.0) -> None:
     from hyperliquid.info import Info
@@ -340,38 +448,33 @@ def run_paper_trader(duration_s: float = 120.0) -> None:
     loop   = asyncio.new_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
-    logger.info("Connecting to mainnet: %s", PAPER_API_URL)
+    logger.info("Connecting to %s", PAPER_API_URL)
     info = Info(base_url=PAPER_API_URL, skip_ws=False)
 
-    # ---- l2Book callback ----
     def on_book_msg(msg: dict) -> None:
         try:
             data   = msg["data"]
             levels = data["levels"]
             ts_ms  = int(data.get("time", time.time() * 1000))
-            book = OrderBook(
+            book   = OrderBook(
                 bids=[Level.from_ws(l) for l in levels[0][: config.OFI_LEVELS + 3]],
                 asks=[Level.from_ws(l) for l in levels[1][: config.OFI_LEVELS + 3]],
                 timestamp_ms=ts_ms,
             )
             loop.call_soon_threadsafe(queue.put_nowait, ("book", book))
         except Exception as exc:
-            logger.debug("book parse error: %s", exc)
+            logger.debug("book parse: %s", exc)
 
-    # ---- trades callback ----
     def on_trades_msg(msg: dict) -> None:
         try:
-            trades_list = msg.get("data", [])
-            if isinstance(trades_list, list):
-                for t in trades_list:
-                    loop.call_soon_threadsafe(queue.put_nowait, ("trade", t))
+            for t in msg.get("data", []):
+                loop.call_soon_threadsafe(queue.put_nowait, ("trade", t))
         except Exception as exc:
-            logger.debug("trades parse error: %s", exc)
+            logger.debug("trades parse: %s", exc)
 
-    info.subscribe({"type": "l2Book",  "coin": config.COIN}, on_book_msg)
-    info.subscribe({"type": "trades",  "coin": config.COIN}, on_trades_msg)
-
-    logger.info("Subscribed — running for %.0fs on %s", duration_s, config.COIN)
+    info.subscribe({"type": "l2Book", "coin": config.COIN}, on_book_msg)
+    info.subscribe({"type": "trades", "coin": config.COIN}, on_trades_msg)
+    logger.info("Subscribed to l2Book + trades  |  %s  |  duration=%.0fs", config.COIN, duration_s)
 
     async def _run() -> None:
         deadline = time.monotonic() + duration_s
@@ -380,7 +483,6 @@ def run_paper_trader(duration_s: float = 120.0) -> None:
                 kind, payload = await asyncio.wait_for(queue.get(), timeout=2.0)
             except asyncio.TimeoutError:
                 continue
-
             if kind == "book":
                 trader.on_book(payload)
             elif kind == "trade":
@@ -392,9 +494,7 @@ def run_paper_trader(duration_s: float = 120.0) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="OFI paper trader on Hyperliquid mainnet")
-    parser.add_argument("--duration", type=float, default=120.0,
-                        help="How many seconds to run (default: 120)")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--duration", type=float, default=120.0)
     args = parser.parse_args()
-
     run_paper_trader(duration_s=args.duration)
