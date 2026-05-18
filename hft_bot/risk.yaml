@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# Hyperliquid HFT Bot — Risk Configuration
+# All values here are hot-reloadable; edit and send SIGHUP to reload.
+# ---------------------------------------------------------------------------
+
+# Maximum net BTC position (long OR short).  Bot stops quoting in a direction
+# once this limit is hit and resumes only after inventory mean-reverts.
+max_inventory_btc: 0.05
+
+# Hard stop-loss as a fraction of entry price.  Position is market-closed the
+# instant unrealized loss exceeds this threshold.
+# 0.003 = 0.3 %
+stop_loss_pct: 0.003
+
+# Daily circuit breaker: if REALIZED loss (cumulative fills) exceeds this
+# amount in USD, the bot cancels all orders, closes all positions, and exits.
+max_daily_loss_usd: 500.0
+
+# Cross-margin leverage applied at startup (1 = no leverage).
+leverage: 1

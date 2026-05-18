@@ -1,0 +1,225 @@
+"""
+Live mutable state for the OFI bot.
+
+Deliberately kept as plain dataclasses / mutables so that strategy.py and
+executor.py can read / write with zero serialisation overhead.  All asyncio
+tasks share a single BotState instance on the same thread; no locks needed.
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Deque, Dict, List, Optional, Tuple
+
+import config
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+class BotStatus(Enum):
+    INITIALIZING = "initializing"
+    RUNNING = "running"
+    PAUSED_INVENTORY = "paused_inventory"   # inventory limit hit
+    CIRCUIT_BREAKER = "circuit_breaker"     # daily-loss limit hit
+    STOPPED = "stopped"
+
+
+# ---------------------------------------------------------------------------
+# Order book data structures
+# ---------------------------------------------------------------------------
+@dataclass
+class Level:
+    price: float
+    size: float
+
+    @classmethod
+    def from_ws(cls, raw: dict) -> "Level":
+        return cls(price=float(raw["px"]), size=float(raw["sz"]))
+
+
+@dataclass
+class OrderBook:
+    """Top-N snapshot of the BTC L2 book, refreshed on every WebSocket push."""
+    bids: List[Level] = field(default_factory=list)   # best bid first (desc)
+    asks: List[Level] = field(default_factory=list)   # best ask first (asc)
+    timestamp_ms: int = 0
+
+    def best_bid(self) -> Optional[Level]:
+        return self.bids[0] if self.bids else None
+
+    def best_ask(self) -> Optional[Level]:
+        return self.asks[0] if self.asks else None
+
+    def mid_price(self) -> Optional[float]:
+        bid = self.best_bid()
+        ask = self.best_ask()
+        if bid and ask:
+            return round((bid.price + ask.price) / 2, 2)
+        return None
+
+    def spread(self) -> Optional[float]:
+        bid = self.best_bid()
+        ask = self.best_ask()
+        if bid and ask:
+            return ask.price - bid.price
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Open-order tracking
+# ---------------------------------------------------------------------------
+@dataclass
+class OpenOrder:
+    oid: int
+    cloid: str
+    is_buy: bool
+    price: float
+    size: float
+    placed_at_ms: int
+    cancel_task: Optional[asyncio.Task] = field(default=None, compare=False, repr=False)
+
+
+# ---------------------------------------------------------------------------
+# OFI rolling-window entry
+# ---------------------------------------------------------------------------
+OFIEntry = Tuple[int, float]   # (timestamp_ms, ofi_delta)
+
+
+# ---------------------------------------------------------------------------
+# Master bot state
+# ---------------------------------------------------------------------------
+@dataclass
+class BotState:
+    # --- Order book ---
+    book: OrderBook = field(default_factory=OrderBook)
+
+    # --- Position / inventory ---
+    # Net BTC position.  Positive = long, negative = short.
+    inventory_btc: float = 0.0
+    # Volume-weighted average entry price of the current open position.
+    entry_price: Optional[float] = None
+
+    # --- Open orders ---
+    open_orders: Dict[int, OpenOrder] = field(default_factory=dict)
+
+    # --- PnL ---
+    daily_pnl_usd: float = 0.0
+    session_start_ts: float = field(default_factory=time.time)
+
+    # --- OFI rolling window ---
+    # Each entry: (timestamp_ms, ofi_delta).  Pruned to OFI_WINDOW_MS.
+    ofi_window: Deque[OFIEntry] = field(
+        default_factory=lambda: deque(maxlen=2000)
+    )
+    # Previous book snapshot used to compute OFI deltas.
+    prev_bids: List[Level] = field(default_factory=list)
+    prev_asks: List[Level] = field(default_factory=list)
+
+    # --- Bot lifecycle ---
+    status: BotStatus = BotStatus.INITIALIZING
+    last_signal_ms: int = 0          # epoch ms of the last emitted signal
+    ws_reconnect_count: int = 0
+
+    # --- Statistics ---
+    total_orders_placed: int = 0
+    total_orders_filled: int = 0
+    total_orders_cancelled: int = 0
+    total_buys_filled: int = 0
+    total_sells_filled: int = 0
+
+    # ---------------------------------------------------------------------------
+    # Derived helpers
+    # ---------------------------------------------------------------------------
+    def mid_price(self) -> Optional[float]:
+        return self.book.mid_price()
+
+    def unrealized_pnl_usd(self) -> float:
+        mid = self.mid_price()
+        if mid is None or self.entry_price is None or self.inventory_btc == 0.0:
+            return 0.0
+        return self.inventory_btc * (mid - self.entry_price)
+
+    def total_pnl_usd(self) -> float:
+        return self.daily_pnl_usd + self.unrealized_pnl_usd()
+
+    def is_running(self) -> bool:
+        return self.status == BotStatus.RUNNING
+
+    def can_buy(self) -> bool:
+        return self.is_running() and self.inventory_btc < config.MAX_INVENTORY_BTC
+
+    def can_sell(self) -> bool:
+        return self.is_running() and self.inventory_btc > -config.MAX_INVENTORY_BTC
+
+    # ---------------------------------------------------------------------------
+    # Inventory update after a fill
+    # ---------------------------------------------------------------------------
+    def record_fill(self, is_buy: bool, fill_px: float, fill_sz: float, closed_pnl: float) -> None:
+        """Update inventory and PnL after a confirmed fill."""
+        signed_sz = fill_sz if is_buy else -fill_sz
+
+        if self.inventory_btc == 0.0 or (self.inventory_btc > 0) == is_buy:
+            # Adding to position: update VWAP entry price.
+            if self.entry_price is None:
+                self.entry_price = fill_px
+            else:
+                total = abs(self.inventory_btc) + fill_sz
+                self.entry_price = (
+                    abs(self.inventory_btc) * self.entry_price + fill_sz * fill_px
+                ) / total
+        else:
+            # Reducing / flipping position.
+            if abs(signed_sz) >= abs(self.inventory_btc):
+                # Position fully closed (or flipped).
+                remaining = abs(signed_sz) - abs(self.inventory_btc)
+                self.entry_price = fill_px if remaining > 0 else None
+
+        self.inventory_btc += signed_sz
+        if abs(self.inventory_btc) < 1e-8:
+            self.inventory_btc = 0.0
+            self.entry_price = None
+
+        self.daily_pnl_usd += closed_pnl
+
+        if is_buy:
+            self.total_buys_filled += 1
+        else:
+            self.total_sells_filled += 1
+        self.total_orders_filled += 1
+
+    # ---------------------------------------------------------------------------
+    # Status transitions
+    # ---------------------------------------------------------------------------
+    def set_running(self) -> None:
+        self.status = BotStatus.RUNNING
+
+    def set_paused_inventory(self) -> None:
+        if self.status == BotStatus.RUNNING:
+            self.status = BotStatus.PAUSED_INVENTORY
+
+    def set_circuit_breaker(self) -> None:
+        self.status = BotStatus.CIRCUIT_BREAKER
+
+    def set_stopped(self) -> None:
+        self.status = BotStatus.STOPPED
+
+    # ---------------------------------------------------------------------------
+    # Summary for logging
+    # ---------------------------------------------------------------------------
+    def summary(self) -> str:
+        mid = self.mid_price()
+        mid_str = f"{mid:.2f}" if mid else "N/A"
+        return (
+            f"status={self.status.value} "
+            f"inv={self.inventory_btc:+.4f}BTC "
+            f"entry={self.entry_price or 0:.2f} "
+            f"mid={mid_str} "
+            f"unrealPnL={self.unrealized_pnl_usd():+.2f}$ "
+            f"realPnL={self.daily_pnl_usd:+.2f}$ "
+            f"fills={self.total_orders_filled} "
+            f"open_orders={len(self.open_orders)}"
+        )
