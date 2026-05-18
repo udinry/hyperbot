@@ -33,6 +33,12 @@ PRIVATE_KEY: str = os.getenv("PRIVATE_KEY", "")
 # If empty, bot runs in OBSERVER mode: signals are computed but no orders fire.
 OBSERVER_MODE: bool = not bool(PRIVATE_KEY)
 
+# Master account address for READ operations (positions, fills, balance).
+# If using an API agent wallet (PRIVATE_KEY belongs to the agent, not the main account),
+# set this to the main account address. Reads (clearinghouseState, userFills WS) must
+# use the master address — the agent address has no balance or positions of its own.
+ACCOUNT_ADDRESS: str = os.getenv("ACCOUNT_ADDRESS", "")
+
 # ---------------------------------------------------------------------------
 # Instrument
 # ---------------------------------------------------------------------------
