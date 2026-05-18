@@ -206,14 +206,15 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
             return
         # margin = balance × risk_pct; notional = margin × leverage; btc = notional / mid
         raw = (balance * config.POSITION_RISK_PCT * config.LEVERAGE) / mid
-        # Clamp: minimum 0.001 BTC (exchange min), maximum = inventory limit
-        new_size = round(max(0.001, min(config.MAX_INVENTORY_BTC, raw)), 3)
+        # Safety cap at 0.1 BTC (~$7700 notional) — sanity limit only, not risk limit.
+        new_size = round(max(0.001, min(0.1, raw)), 3)
         if new_size != state.order_size_btc:
             logger.info(
                 "Position resize | balance=$%.2f mid=%.2f → %.4f BTC (was %.4f)",
                 balance, mid, new_size, state.order_size_btc,
             )
-            state.order_size_btc = new_size
+            state.order_size_btc   = new_size
+            state.max_inventory_btc = new_size  # inventory limit tracks order size
     except Exception as exc:
         logger.warning("refresh_order_size failed: %s — keeping %.4f BTC", exc, state.order_size_btc)
 
@@ -253,13 +254,13 @@ async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
             break
 
         if state.status == BotStatus.RUNNING:
-            if (state.inventory_btc >= config.MAX_INVENTORY_BTC or
-                    state.inventory_btc <= -config.MAX_INVENTORY_BTC):
+            if (state.inventory_btc >= state.max_inventory_btc or
+                    state.inventory_btc <= -state.max_inventory_btc):
                 state.set_paused_inventory()
                 logger.warning("INVENTORY LIMIT | inv=%.4f BTC | pausing", state.inventory_btc)
 
         elif state.status == BotStatus.PAUSED_INVENTORY:
-            if abs(state.inventory_btc) <= config.MAX_INVENTORY_BTC * 0.8:
+            if abs(state.inventory_btc) <= state.max_inventory_btc * 0.8:
                 state.set_running()
                 logger.info("INVENTORY RESUMED | inv=%.4f BTC", state.inventory_btc)
 

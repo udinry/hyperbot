@@ -131,6 +131,8 @@ class BotState:
 
     # --- Dynamic position sizing (refreshed from live balance every 5 min) ---
     order_size_btc: float = field(default_factory=lambda: config.ORDER_SIZE_BTC)
+    # Inventory limit tracks order_size_btc: pauses quoting when |inventory| >= this.
+    max_inventory_btc: float = field(default_factory=lambda: config.MAX_INVENTORY_BTC)
 
     # --- Bot lifecycle ---
     status: BotStatus = BotStatus.INITIALIZING
@@ -163,10 +165,10 @@ class BotState:
         return self.status == BotStatus.RUNNING
 
     def can_buy(self) -> bool:
-        return self.is_running() and self.inventory_btc < config.MAX_INVENTORY_BTC
+        return self.is_running() and self.inventory_btc < self.max_inventory_btc
 
     def can_sell(self) -> bool:
-        return self.is_running() and self.inventory_btc > -config.MAX_INVENTORY_BTC
+        return self.is_running() and self.inventory_btc > -self.max_inventory_btc
 
     # ---------------------------------------------------------------------------
     # Inventory update after a fill
