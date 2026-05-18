@@ -129,6 +129,9 @@ class BotState:
         default_factory=lambda: deque(maxlen=500)
     )
 
+    # --- Dynamic position sizing (refreshed from live balance every 5 min) ---
+    order_size_btc: float = field(default_factory=lambda: config.ORDER_SIZE_BTC)
+
     # --- Bot lifecycle ---
     status: BotStatus = BotStatus.INITIALIZING
     last_signal_ms: int = 0

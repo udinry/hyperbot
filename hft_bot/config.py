@@ -39,7 +39,13 @@ OBSERVER_MODE: bool = not bool(PRIVATE_KEY)
 COIN: str = os.getenv("COIN", "BTC")
 
 # BTC lot size on Hyperliquid — each order is this many BTC.
+# Overridden at runtime by dynamic sizing (balance × POSITION_RISK_PCT / leverage / mid).
 ORDER_SIZE_BTC: float = float(os.getenv("ORDER_SIZE_BTC", "0.01"))
+
+# Fraction of account balance to use as margin per trade for dynamic sizing.
+# 0.48 → at $160 account and 10x leverage: margin = $160×0.48 = $76.80 → 0.010 BTC at $77k.
+# Scales automatically: if balance drops to $130 → 0.008 BTC; grows to $200 → 0.010 BTC (capped).
+POSITION_RISK_PCT: float = float(os.getenv("POSITION_RISK_PCT", "0.48"))
 
 # ---------------------------------------------------------------------------
 # OFI strategy tuning

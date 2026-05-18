@@ -193,6 +193,39 @@ class WSManager:
             logger.error("_on_trades parse error: %s | msg=%s", exc, msg)
 
 
+async def _refresh_order_size(state: BotState, info, wallet_address: str) -> None:
+    """Fetch live account balance and resize order_size_btc proportionally.
+    Runs in the thread pool so it never blocks the event loop."""
+    loop = asyncio.get_running_loop()
+    try:
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        data = await loop.run_in_executor(None, info.user_state, wallet_address)
+        balance = float(data["marginSummary"]["accountValue"])
+        mid = state.mid_price()
+        if not mid or mid <= 0:
+            return
+        # margin = balance × risk_pct; notional = margin × leverage; btc = notional / mid
+        raw = (balance * config.POSITION_RISK_PCT * config.LEVERAGE) / mid
+        # Clamp: minimum 0.001 BTC (exchange min), maximum = inventory limit
+        new_size = round(max(0.001, min(config.MAX_INVENTORY_BTC, raw)), 3)
+        if new_size != state.order_size_btc:
+            logger.info(
+                "Position resize | balance=$%.2f mid=%.2f → %.4f BTC (was %.4f)",
+                balance, mid, new_size, state.order_size_btc,
+            )
+            state.order_size_btc = new_size
+    except Exception as exc:
+        logger.warning("refresh_order_size failed: %s — keeping %.4f BTC", exc, state.order_size_btc)
+
+
+async def position_sizer(state: BotState, info, wallet_address: str) -> None:
+    """Background task: re-check account balance every 5 minutes and resize."""
+    while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+        await asyncio.sleep(300)
+        await _refresh_order_size(state, info, wallet_address)
+    logger.info("Position sizer exiting")
+
+
 async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(0.1)
@@ -334,7 +367,7 @@ async def _handle_book(
             price = (best_bid.price + config.PRICE_TICK) if best_bid else (best_ask.price - config.PRICE_TICK)
             if price >= best_ask.price:
                 price = best_ask.price - config.PRICE_TICK
-        await executor.place_limit_order(is_buy=True, price=price, size=config.ORDER_SIZE_BTC, spread=spread)
+        await executor.place_limit_order(is_buy=True, price=price, size=state.order_size_btc, spread=spread)
 
     elif signal == "sell":
         best_bid = book.best_bid()
@@ -348,7 +381,7 @@ async def _handle_book(
             price = (best_ask.price - config.PRICE_TICK) if best_ask else (best_bid.price + config.PRICE_TICK)
             if price <= best_bid.price:
                 price = best_bid.price + config.PRICE_TICK
-        await executor.place_limit_order(is_buy=False, price=price, size=config.ORDER_SIZE_BTC, spread=spread)
+        await executor.place_limit_order(is_buy=False, price=price, size=state.order_size_btc, spread=spread)
 
 
 def _handle_order_update(state: BotState, update: dict) -> None:
@@ -398,6 +431,13 @@ async def run() -> None:
 
     await executor.set_leverage()
 
+    # Dynamic position sizing: fetch balance once before first trade.
+    # Refreshed every 5 min by position_sizer task. Skipped in observer mode.
+    _info_rest = Info(base_url=config.API_URL, skip_ws=True)
+    if not config.OBSERVER_MODE and _wallet:
+        await _refresh_order_size(state, _info_rest, _wallet.address)
+    logger.info("Order size: %.4f BTC", state.order_size_btc)
+
     ws_mgr = WSManager(queue, loop)
     ws_mgr.start()
     ws_manager_holder = [ws_mgr]
@@ -420,12 +460,19 @@ async def run() -> None:
     state.set_running()
     logger.info("Bot is LIVE | %s", state.summary())
 
+    sizer_task = (
+        loop.create_task(position_sizer(state, _info_rest, _wallet.address), name="position_sizer")
+        if not config.OBSERVER_MODE and _wallet else None
+    )
+
     tasks = [
         loop.create_task(main_loop(state, executor, queue),          name="main_loop"),
         loop.create_task(risk_monitor(state, executor),              name="risk_monitor"),
         loop.create_task(ws_health_monitor(ws_manager_holder, queue, loop, state), name="ws_health"),
         loop.create_task(stats_logger(state),                        name="stats_logger"),
     ]
+    if sizer_task:
+        tasks.append(sizer_task)
 
     try:
         await asyncio.gather(*tasks)
