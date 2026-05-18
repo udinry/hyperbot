@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template
@@ -44,8 +45,9 @@ def _hl_post(payload: dict) -> dict:
         return json.loads(resp.read())
 
 
-def _fetch_exchange_fills() -> list:
-    """Pull all BTC fills for the master account from Hyperliquid REST.
+def _fetch_exchange_fills(since_ms: int = 0) -> list:
+    """Pull BTC fills for the master account from Hyperliquid REST.
+    since_ms: Unix ms cutoff — only returns fills at or after this timestamp.
     Returns oldest-first list with running cumulative PnL."""
     raw = _hl_post({"type": "userFills", "user": WALLET_ADDRESS})
     fills = []
@@ -53,11 +55,14 @@ def _fetch_exchange_fills() -> list:
     for f in raw:
         if f.get("coin") != "BTC":
             continue
+        t = int(f.get("time", 0))
+        if since_ms and t < since_ms:
+            continue
         cpnl = float(f.get("closedPnl", 0))
         fee  = float(f.get("fee", 0))
         cum += cpnl
         fills.append({
-            "time_ms":    int(f.get("time", 0)),
+            "time_ms":    t,
             "oid":        int(f.get("oid", 0)),
             "side":       "BUY" if f.get("side") == "B" else "SELL",
             "dir":        f.get("dir", ""),
@@ -105,28 +110,42 @@ def index():
     return render_template("hyperbot.html")
 
 
+def _today_start_ms() -> int:
+    """Unix ms for 00:00:00 UTC today."""
+    now = datetime.now(timezone.utc)
+    sod = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(sod.timestamp() * 1000)
+
+
 @app.route("/hyperbot/api/status")
 def api_status():
     last_state = _parse_log()
+    # Augment with today's realized PnL and fill count from exchange (source of truth)
+    try:
+        fills = _fetch_exchange_fills(since_ms=_today_start_ms())
+        last_state["realized_pnl"] = fills[-1]["cum_pnl"] if fills else 0.0
+        last_state["fills"] = len(fills)
+    except Exception:
+        pass
     return jsonify({"service": _svc_status(), "state": last_state})
 
 
 @app.route("/hyperbot/api/trades")
 def api_trades():
     try:
-        fills = _fetch_exchange_fills()
+        fills = _fetch_exchange_fills(since_ms=_today_start_ms())
     except Exception as e:
         return jsonify({"error": str(e), "trades": []}), 500
-    return jsonify({"trades": fills[:500], "total": len(fills)})
+    return jsonify({"trades": fills, "total": len(fills)})
 
 
 @app.route("/hyperbot/api/pnl")
 def api_pnl():
     try:
-        fills = _fetch_exchange_fills()
+        fills = _fetch_exchange_fills(since_ms=_today_start_ms())
     except Exception as e:
         return jsonify({"error": str(e), "series": []}), 500
-    series = [{"t": f["time"], "v": f["cum_pnl"]} for f in reversed(fills)]
+    series = [{"t": f["time_ms"], "v": f["cum_pnl"]} for f in fills]
     return jsonify({"series": series})
 
 
