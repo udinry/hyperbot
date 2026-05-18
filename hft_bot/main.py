@@ -181,7 +181,13 @@ class WSManager:
 
     def _on_fills(self, msg: dict) -> None:
         try:
-            fills = msg["data"].get("fills", [])
+            data = msg["data"]
+            # Hyperliquid sends an isSnapshot=True burst of historical fills on
+            # subscribe — skip it; we trust _reconcile_position for startup state.
+            if data.get("isSnapshot"):
+                logger.info("userFills snapshot (%d fills) — skipped", len(data.get("fills", [])))
+                return
+            fills = data.get("fills", [])
             for fill in fills:
                 self.loop.call_soon_threadsafe(self.queue.put_nowait, (_MSG_FILLS, fill))
         except Exception as exc:
