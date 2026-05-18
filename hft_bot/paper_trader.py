@@ -441,18 +441,25 @@ class PaperTrader:
 # WebSocket runner
 # ─────────────────────────────────────────────────────────────────────────────
 
-def run_paper_trader(duration_s: float = 120.0) -> None:
+def run_paper_trader(duration_s: float = 120.0, record_file: Optional[str] = None) -> None:
     from hyperliquid.info import Info
 
-    trader = PaperTrader(duration_s=duration_s)
-    loop   = asyncio.new_event_loop()
+    trader  = PaperTrader(duration_s=duration_s)
+    loop    = asyncio.new_event_loop()
     queue: asyncio.Queue = asyncio.Queue()
+    rec_fh  = open(record_file, "w") if record_file else None
 
     logger.info("Connecting to %s", PAPER_API_URL)
     info = Info(base_url=PAPER_API_URL, skip_ws=False)
 
+    def _record(kind: str, raw_msg: dict) -> None:
+        if rec_fh:
+            rec_fh.write(json.dumps({"type": kind, "wall_ms": int(time.time() * 1000),
+                                     "data": raw_msg.get("data", raw_msg)}) + "\n")
+
     def on_book_msg(msg: dict) -> None:
         try:
+            _record("book", msg)
             data   = msg["data"]
             levels = data["levels"]
             ts_ms  = int(data.get("time", time.time() * 1000))
@@ -468,13 +475,15 @@ def run_paper_trader(duration_s: float = 120.0) -> None:
     def on_trades_msg(msg: dict) -> None:
         try:
             for t in msg.get("data", []):
+                _record("trade", {"data": t})
                 loop.call_soon_threadsafe(queue.put_nowait, ("trade", t))
         except Exception as exc:
             logger.debug("trades parse: %s", exc)
 
     info.subscribe({"type": "l2Book", "coin": config.COIN}, on_book_msg)
     info.subscribe({"type": "trades", "coin": config.COIN}, on_trades_msg)
-    logger.info("Subscribed to l2Book + trades  |  %s  |  duration=%.0fs", config.COIN, duration_s)
+    logger.info("Subscribed to l2Book + trades  |  %s  |  duration=%.0fs  |  recording=%s",
+                config.COIN, duration_s, record_file or "off")
 
     async def _run() -> None:
         deadline = time.monotonic() + duration_s
@@ -490,11 +499,19 @@ def run_paper_trader(duration_s: float = 120.0) -> None:
 
     loop.run_until_complete(_run())
     info.disconnect_websocket()
+    if rec_fh:
+        rec_fh.close()
+        logger.info("Session recorded to %s", record_file)
     trader.report()
 
 
 if __name__ == "__main__":
+    import json as _json_mod  # already imported above but kept explicit
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--duration", type=float, default=120.0)
+    parser.add_argument("--duration", type=float, default=120.0,
+                        help="Session length in seconds")
+    parser.add_argument("--record", metavar="FILE",
+                        help="Save raw WS stream to JSONL for later replay backtest")
     args = parser.parse_args()
-    run_paper_trader(duration_s=args.duration)
+    run_paper_trader(duration_s=args.duration, record_file=args.record)
