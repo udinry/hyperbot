@@ -1,0 +1,15 @@
+[Unit]
+Description=Hyperbot OFI/TFI HFT Trading Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/hyperbot/hft_bot
+ExecStart=/opt/hyperbot/.venv/bin/python main.py
+Restart=no
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

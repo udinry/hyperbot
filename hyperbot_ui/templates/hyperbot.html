@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hyperbot</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0d0d; --surface: #161616; --border: #242424;
+      --text: #e8e8e8; --muted: #666;
+      --green: #22c55e; --red: #ef4444; --yellow: #eab308; --blue: #3b82f6;
+    }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; }
+    a { color: var(--blue); text-decoration: none; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 20px; }
+
+    /* Header */
+    .hdr { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+    .hdr-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
+    .badge::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+    .b-active   { background: rgba(34,197,94,.15); color: var(--green); }
+    .b-inactive, .b-failed { background: rgba(239,68,68,.15); color: var(--red); }
+    .b-activating { background: rgba(234,179,8,.15); color: var(--yellow); }
+    .b-unknown  { background: rgba(102,102,102,.15); color: var(--muted); }
+    .bot-state  { font-size: 12px; color: var(--muted); }
+    .controls   { display: flex; gap: 8px; }
+    btn, button { padding: 7px 18px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+    button:hover { opacity: .8; }
+    button:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-start  { background: var(--green); color: #000; }
+    .btn-stop   { background: var(--red); color: #fff; }
+    .btn-ghost  { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+
+    /* Stats */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+    .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 5px; }
+    .stat-value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pos { color: var(--green); }
+    .neg { color: var(--red); }
+    .neu { color: var(--text); }
+
+    /* Panels */
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+    .phdr { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .phdr h2 { font-size: 13px; font-weight: 600; }
+    .phdr span { font-size: 11px; color: var(--muted); }
+    .pbody { padding: 16px; }
+    .chart-wrap { height: 200px; }
+
+    /* Table */
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th { text-align: left; padding: 8px 14px; color: var(--muted); font-weight: 500; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    td { padding: 7px 14px; border-bottom: 1px solid rgba(255,255,255,.04); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    .buy  { color: var(--green); font-weight: 600; }
+    .sell { color: var(--red);   font-weight: 600; }
+    .empty { color: var(--muted); text-align: center; padding: 40px; font-size: 13px; }
+
+    /* Log */
+    .log-box { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 11px; line-height: 1.6; color: #999; background: #0a0a0a; border-radius: 6px; padding: 12px 14px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .l-info { color: #6b9eff; }
+    .l-warn { color: var(--yellow); }
+    .l-err  { color: var(--red); }
+
+    .footer { font-size: 11px; color: var(--muted); margin-top: 12px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hdr">
+    <div class="hdr-left">
+      <h1>Hyperbot</h1>
+      <span id="svcBadge" class="badge b-unknown">loading</span>
+      <span id="botState" class="bot-state"></span>
+    </div>
+    <div class="controls">
+      <button class="btn-start" id="btnStart" onclick="startBot()" disabled>Start</button>
+      <button class="btn-stop"  id="btnStop"  onclick="stopBot()"  disabled>Stop</button>
+      <button class="btn-ghost" onclick="refresh()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Realized PnL</div><div class="stat-value" id="realPnl">—</div></div>
+    <div class="stat"><div class="stat-label">Unrealized PnL</div><div class="stat-value" id="unrealPnl">—</div></div>
+    <div class="stat"><div class="stat-label">Total Fills</div><div class="stat-value neu" id="totalFills">—</div></div>
+    <div class="stat"><div class="stat-label">Inventory</div><div class="stat-value neu" id="inventory">—</div></div>
+    <div class="stat"><div class="stat-label">Mid Price</div><div class="stat-value neu" id="midPrice">—</div></div>
+    <div class="stat"><div class="stat-label">Open Orders</div><div class="stat-value neu" id="openOrders">—</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="phdr"><h2>Realized PnL</h2><span id="pnlTs"></span></div>
+    <div class="pbody"><div class="chart-wrap"><canvas id="pnlChart"></canvas></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="phdr"><h2>Recent Trades</h2><span id="tradeCount"></span></div>
+    <div id="tradesWrap"><div class="empty">No trades yet</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="phdr">
+      <h2>Bot Log</h2>
+      <button class="btn-ghost" style="padding:3px 10px;font-size:11px" onclick="loadLog()">Reload</button>
+    </div>
+    <div class="pbody"><div class="log-box" id="logBox">Loading...</div></div>
+  </div>
+
+  <p class="footer">Auto-refreshes every 15s &nbsp;|&nbsp; Last update: <span id="lastTs">—</span></p>
+</div>
+
+<script>
+let chart = null;
+
+function initChart() {
+  const ctx = document.getElementById('pnlChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Cum. PnL ($)',
+        data: [],
+        borderColor: '#3b82f6',
+        borderWidth: 2,
+        pointRadius: 2,
+        fill: true,
+        backgroundColor: 'rgba(59,130,246,0.07)',
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => '$' + c.parsed.y.toFixed(4) } } },
+      scales: {
+        x: { ticks: { color: '#555', maxTicksLimit: 8, font: { size: 10 } }, grid: { color: '#1c1c1c' } },
+        y: { ticks: { color: '#555', font: { size: 10 }, callback: v => '$' + v.toFixed(2) }, grid: { color: '#1c1c1c' } },
+      },
+    },
+  });
+}
+
+function pnlClass(v) {
+  return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu';
+}
+function pnlFmt(v, decimals = 4) {
+  const sign = v > 0 ? '+' : '';
+  return `<span class="${pnlClass(v)}">${sign}${v.toFixed(decimals)}</span>`;
+}
+
+async function loadStatus() {
+  try {
+    const r = await fetch('/hyperbot/api/status');
+    const d = await r.json();
+    const svc = d.service || 'unknown';
+    const st  = d.state  || {};
+
+    const badge = document.getElementById('svcBadge');
+    badge.textContent = svc;
+    badge.className = 'badge b-' + (svc === 'active' ? 'active' : svc === 'inactive' ? 'inactive' : svc === 'failed' ? 'failed' : svc === 'activating' ? 'activating' : 'unknown');
+
+    document.getElementById('botState').textContent = st.status ? `bot: ${st.status}` : '';
+
+    document.getElementById('realPnl').innerHTML   = st.realized_pnl   != null ? pnlFmt(st.realized_pnl)   + ' $' : '—';
+    document.getElementById('unrealPnl').innerHTML = st.unrealized_pnl  != null ? pnlFmt(st.unrealized_pnl) + ' $' : '—';
+    document.getElementById('totalFills').textContent  = st.fills       != null ? st.fills       : '—';
+    document.getElementById('openOrders').textContent  = st.open_orders != null ? st.open_orders : '—';
+
+    if (st.inventory != null) {
+      const inv = st.inventory;
+      const sign = inv >= 0 ? '+' : '';
+      document.getElementById('inventory').textContent = sign + inv.toFixed(4) + ' BTC';
+      document.getElementById('inventory').className = 'stat-value ' + (inv !== 0 ? (inv > 0 ? 'pos' : 'neg') : 'neu');
+    }
+
+    if (st.mid != null) {
+      document.getElementById('midPrice').textContent = '$' + st.mid.toLocaleString(undefined, { minimumFractionDigits: 2 });
+    }
+
+    document.getElementById('btnStart').disabled = svc === 'active' || svc === 'activating';
+    document.getElementById('btnStop').disabled  = svc !== 'active';
+  } catch (e) { console.error('status:', e); }
+}
+
+async function loadTrades() {
+  try {
+    const r = await fetch('/hyperbot/api/trades');
+    const d = await r.json();
+    const trades = d.trades || [];
+    document.getElementById('tradeCount').textContent = trades.length ? `${trades.length} fills` : '';
+    const wrap = document.getElementById('tradesWrap');
+    if (!trades.length) { wrap.innerHTML = '<div class="empty">No trades yet</div>'; return; }
+
+    const rows = trades.slice(0, 150).map(t => `
+      <tr>
+        <td>${t.time}</td>
+        <td class="${t.side.toLowerCase()}">${t.side}</td>
+        <td>$${t.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+        <td>${t.size.toFixed(4)}</td>
+        <td>${pnlFmt(t.closed_pnl)} $</td>
+        <td>${pnlFmt(t.cum_pnl)} $</td>
+      </tr>`).join('');
+
+    wrap.innerHTML = `<div style="overflow-x:auto"><table>
+      <thead><tr><th>Time</th><th>Side</th><th>Price</th><th>Size (BTC)</th><th>Closed PnL</th><th>Cumulative PnL</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  } catch (e) { console.error('trades:', e); }
+}
+
+async function loadPnl() {
+  try {
+    const r = await fetch('/hyperbot/api/pnl');
+    const d = await r.json();
+    const series = d.series || [];
+    if (!chart) return;
+    chart.data.labels = series.map(p => p.t);
+    chart.data.datasets[0].data = series.map(p => p.v);
+    document.getElementById('pnlTs').textContent = series.length ? `${series.length} data points` : '';
+    chart.update('none');
+  } catch (e) { console.error('pnl:', e); }
+}
+
+async function loadLog() {
+  try {
+    const r = await fetch('/hyperbot/api/log');
+    const d = await r.json();
+    const box = document.getElementById('logBox');
+    const lines = d.lines || [];
+    if (!lines.length) { box.textContent = 'No log output yet.'; return; }
+    box.innerHTML = lines.map(l => {
+      const esc = l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      if (/\[(ERROR|CRITICAL)\]/.test(esc)) return `<span class="l-err">${esc}</span>`;
+      if (/\[WARNING\]/.test(esc))          return `<span class="l-warn">${esc}</span>`;
+      if (/\[INFO\]/.test(esc))             return `<span class="l-info">${esc}</span>`;
+      return esc;
+    }).join('\n');
+    box.scrollTop = box.scrollHeight;
+  } catch (e) { console.error('log:', e); }
+}
+
+async function startBot() {
+  document.getElementById('btnStart').disabled = true;
+  try { await fetch('/hyperbot/api/start', { method: 'POST' }); } catch(e) {}
+  setTimeout(refresh, 2000);
+}
+
+async function stopBot() {
+  document.getElementById('btnStop').disabled = true;
+  try { await fetch('/hyperbot/api/stop', { method: 'POST' }); } catch(e) {}
+  setTimeout(refresh, 2000);
+}
+
+async function refresh() {
+  document.getElementById('lastTs').textContent = new Date().toLocaleTimeString();
+  await Promise.all([loadStatus(), loadTrades(), loadPnl()]);
+}
+
+initChart();
+refresh();
+loadLog();
+setInterval(refresh, 15000);
+setInterval(loadLog, 30000);
+</script>
+</body>
+</html>

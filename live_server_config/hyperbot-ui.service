@@ -1,0 +1,14 @@
+[Unit]
+Description=Hyperbot Management UI
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/hyperbot/hyperbot_ui
+ExecStart=/opt/hyperbot/.venv/bin/python app.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
