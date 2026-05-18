@@ -105,7 +105,6 @@ class OrderExecutor:
                 px,
                 order_type=order_type,
                 reduce_only=False,
-                cloid=cloid,
             )
 
         try:
