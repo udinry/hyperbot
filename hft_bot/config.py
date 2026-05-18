@@ -39,7 +39,7 @@ OBSERVER_MODE: bool = not bool(PRIVATE_KEY)
 COIN: str = os.getenv("COIN", "BTC")
 
 # BTC lot size on Hyperliquid — each order is this many BTC.
-ORDER_SIZE_BTC: float = float(os.getenv("ORDER_SIZE_BTC", "0.001"))
+ORDER_SIZE_BTC: float = float(os.getenv("ORDER_SIZE_BTC", "0.01"))
 
 # ---------------------------------------------------------------------------
 # OFI strategy tuning
