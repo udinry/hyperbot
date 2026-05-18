@@ -45,8 +45,8 @@ def _hl_post(payload: dict) -> dict:
 
 
 def _fetch_exchange_fills() -> list:
-    """Pull all fills for the master account from Hyperliquid REST.
-    Returns newest-first list of fill dicts ready for the UI."""
+    """Pull all BTC fills for the master account from Hyperliquid REST.
+    Returns oldest-first list with running cumulative PnL."""
     raw = _hl_post({"type": "userFills", "user": WALLET_ADDRESS})
     fills = []
     cum = 0.0
@@ -54,18 +54,20 @@ def _fetch_exchange_fills() -> list:
         if f.get("coin") != "BTC":
             continue
         cpnl = float(f.get("closedPnl", 0))
+        fee  = float(f.get("fee", 0))
         cum += cpnl
         fills.append({
-            "time":       f.get("time", 0),
+            "time_ms":    int(f.get("time", 0)),
             "oid":        int(f.get("oid", 0)),
             "side":       "BUY" if f.get("side") == "B" else "SELL",
+            "dir":        f.get("dir", ""),
             "price":      float(f.get("px", 0)),
             "size":       float(f.get("sz", 0)),
+            "fee":        round(fee, 4),
             "closed_pnl": round(cpnl, 4),
             "cum_pnl":    round(cum, 4),
         })
-    # API returns oldest-first; reverse so newest is at top
-    return list(reversed(fills))
+    return fills  # oldest-first; frontend reverses for display
 
 
 def _parse_log():
