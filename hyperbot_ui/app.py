@@ -25,6 +25,7 @@ _STATE_RE = re.compile(
     r"status=(\w+) inv=([+\-\d.]+)BTC entry=([\d.]+) mid=([\d.]+|N/A) "
     r"unrealPnL=([+\-\d.]+)\$ realPnL=([+\-\d.]+)\$ fills=(\d+) open_orders=(\d+)"
 )
+_LIVE_RE = re.compile(r"\[INFO\] main \| Bot is LIVE")
 
 
 def _svc_status() -> str:
@@ -50,6 +51,15 @@ def _parse_log():
     try:
         with open(BOT_LOG, "r", errors="replace") as fh:
             for line in fh:
+                # Reset per-session state at each bot startup so stale fills
+                # from previous sessions don't pollute the PnL display.
+                if _LIVE_RE.search(line):
+                    fills = []
+                    pnl_series = []
+                    cum = 0.0
+                    last_state = {}
+                    continue
+
                 m = _FILL_RE.search(line)
                 if m:
                     ts, oid, side, px, sz, cpnl = m.groups()
