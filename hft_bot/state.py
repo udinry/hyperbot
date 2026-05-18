@@ -86,7 +86,7 @@ class OpenOrder:
 # ---------------------------------------------------------------------------
 # OFI rolling-window entry
 # ---------------------------------------------------------------------------
-OFIEntry = Tuple[int, float]   # (timestamp_ms, ofi_delta)
+OFIEntry = Tuple[int, float]   # (timestamp_ms, signed_value)
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +98,7 @@ class BotState:
     book: OrderBook = field(default_factory=OrderBook)
 
     # --- Position / inventory ---
-    # Net BTC position.  Positive = long, negative = short.
     inventory_btc: float = 0.0
-    # Volume-weighted average entry price of the current open position.
     entry_price: Optional[float] = None
 
     # --- Open orders ---
@@ -119,9 +117,21 @@ class BotState:
     prev_bids: List[Level] = field(default_factory=list)
     prev_asks: List[Level] = field(default_factory=list)
 
+    # --- Trade flow window (for TFI signal confirmation) ---
+    # Each entry: (timestamp_ms, signed_volume)  positive=buy-initiated, negative=sell
+    trade_window: Deque[OFIEntry] = field(
+        default_factory=lambda: deque(maxlen=2000)
+    )
+
+    # --- Mid-price history for short-term trend gate ---
+    # Each entry: (timestamp_ms, mid_price).  Used by compute_price_trend().
+    mid_history: Deque[OFIEntry] = field(
+        default_factory=lambda: deque(maxlen=500)
+    )
+
     # --- Bot lifecycle ---
     status: BotStatus = BotStatus.INITIALIZING
-    last_signal_ms: int = 0          # epoch ms of the last emitted signal
+    last_signal_ms: int = 0
     ws_reconnect_count: int = 0
 
     # --- Statistics ---
@@ -159,11 +169,9 @@ class BotState:
     # Inventory update after a fill
     # ---------------------------------------------------------------------------
     def record_fill(self, is_buy: bool, fill_px: float, fill_sz: float, closed_pnl: float) -> None:
-        """Update inventory and PnL after a confirmed fill."""
         signed_sz = fill_sz if is_buy else -fill_sz
 
         if self.inventory_btc == 0.0 or (self.inventory_btc > 0) == is_buy:
-            # Adding to position: update VWAP entry price.
             if self.entry_price is None:
                 self.entry_price = fill_px
             else:
@@ -172,9 +180,7 @@ class BotState:
                     abs(self.inventory_btc) * self.entry_price + fill_sz * fill_px
                 ) / total
         else:
-            # Reducing / flipping position.
             if abs(signed_sz) >= abs(self.inventory_btc):
-                # Position fully closed (or flipped).
                 remaining = abs(signed_sz) - abs(self.inventory_btc)
                 self.entry_price = fill_px if remaining > 0 else None
 

@@ -1,65 +1,76 @@
 """
-OFI (Order Flow Imbalance) signal engine.
+OFI (Order Flow Imbalance) + TFI (Trade Flow Imbalance) signal engine — v3.
 
-Algorithm
----------
-For each incoming L2 book snapshot we compute a signed OFI delta per level
-using the standard Cont-Kukanov-O'Hara (2014) formulation:
+Changes from v1
+---------------
+1. Trade Flow Imbalance (TFI) confirmation gate: subscribes to the `trades`
+   WebSocket channel (actual executed trades, not just book quotes). A BUY
+   signal now requires BOTH positive L2 OFI (book pressure) AND positive TFI
+   (real buy volume) over the window. This is the primary profitability fix:
+   on a thin market a single bot's quote change moves OFI with no real
+   conviction behind it. TFI from actual fills filters those out.
 
+2. Signal persistence gate: OFI must exceed threshold for OFI_PERSISTENCE_TICKS
+   consecutive book updates. Set to 1 on testnet (tick ~570ms), 3+ on mainnet.
+
+3. Spread liquidity filter: signals suppressed when spread > MAX_SPREAD_BPS.
+   Wide spreads indicate thin-book conditions where OFI is unreliable.
+
+4. Anti-flap protection: opposite direction blocked for SIGNAL_COOLDOWN_MS * 2
+   after each signal, eliminating back-to-back buy/sell that destroy P&L.
+
+5. 800ms cooldown (up from 200ms in v1): v1 generated 30 signals in 3 minutes
+   with many contradictory pairs within 1-2 seconds. 800ms allows 2-4 quality
+   signals per minute which is optimal for the 0.001 BTC position size.
+
+OFI core algorithm (Cont-Kukanov-O'Hara 2014)
+----------------------------------------------
   For bid level i:
-    - price_new > price_old  →  +size_new   (bid queue advanced upward)
-    - price_new < price_old  →  -size_old   (bid queue retreated)
-    - price_new == price_old →  size_new - size_old
+    price up   ->  +size_new    (bid queue advanced, buying pressure)
+    price down ->  -size_old    (bid queue retreated, selling pressure)
+    price same ->  size_new - size_old
 
   For ask level i:
-    - price_new < price_old  →  +size_new   (ask queue advanced downward, buying pressure)
-    - price_new > price_old  →  -size_old   (ask queue retreated)
-    - price_new == price_old →  -(size_new - size_old)
+    price down ->  +size_new    (ask queue advanced, buying pressure)
+    price up   ->  -size_old    (ask queue retreated, selling pressure)
+    price same ->  -(size_new - size_old)
 
   OFI_delta = sum_bid_deltas - sum_ask_deltas
-
-The rolling OFI signal is the volume-normalised sum of all OFI deltas inside
-the last OFI_WINDOW_MS milliseconds.
 """
 from __future__ import annotations
 
 import logging
 import time
-from typing import List, Optional, Tuple
+from collections import deque
+from typing import Deque, List, Optional, Tuple
 
 import config
 from state import BotState, Level, OrderBook
 
 logger = logging.getLogger("ofi_strategy")
 
+_MIN_DEPTH = 1e-6
+
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Level-OFI helpers
 # ---------------------------------------------------------------------------
-
-def _now_ms() -> int:
-    return int(time.monotonic_ns() // 1_000_000)
-
 
 def _level_ofi_bid(prev: Optional[Level], curr: Optional[Level]) -> float:
-    """OFI contribution from one bid level transition."""
     if prev is None and curr is None:
         return 0.0
     if prev is None:
-        # Level appeared fresh → treat as full positive size
         return curr.size  # type: ignore[union-attr]
     if curr is None:
-        # Level disappeared → treat as full negative withdrawal
         return -prev.size
     if curr.price > prev.price:
         return curr.size
     if curr.price < prev.price:
         return -prev.size
-    return curr.size - prev.size   # same price, volume change
+    return curr.size - prev.size
 
 
 def _level_ofi_ask(prev: Optional[Level], curr: Optional[Level]) -> float:
-    """OFI contribution from one ask level transition (sign convention: positive = buy pressure)."""
     if prev is None and curr is None:
         return 0.0
     if prev is None:
@@ -70,17 +81,15 @@ def _level_ofi_ask(prev: Optional[Level], curr: Optional[Level]) -> float:
         return curr.size
     if curr.price > prev.price:
         return -prev.size
-    return -(curr.size - prev.size)   # same price, volume change (inverted for asks)
+    return -(curr.size - prev.size)
 
 
-def _book_depth_volume(bids: List[Level], asks: List[Level], n: int) -> float:
-    """Total notional (size) across top-n bid+ask levels for normalisation."""
-    total = sum(l.size for l in bids[:n]) + sum(l.size for l in asks[:n])
-    return total if total > 0 else 1.0
+def _book_depth(bids: List[Level], asks: List[Level], n: int) -> float:
+    return sum(l.size for l in bids[:n]) + sum(l.size for l in asks[:n])
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Public OFI computation
 # ---------------------------------------------------------------------------
 
 def compute_ofi_delta(
@@ -90,55 +99,68 @@ def compute_ofi_delta(
     curr_asks: List[Level],
     n_levels: int,
 ) -> float:
-    """
-    Compute raw OFI delta between two consecutive book snapshots.
-
-    Returns a signed float in (approximately) BTC units.
-    Positive → buying pressure; Negative → selling pressure.
-    """
-    n = min(n_levels, len(curr_bids), len(curr_asks),
-            max(len(prev_bids), 1), max(len(prev_asks), 1))
-    n = max(n, 1)
-
+    n = max(1, min(n_levels, max(len(curr_bids), 1), max(len(curr_asks), 1)))
     ofi = 0.0
     for i in range(n):
         p_bid = prev_bids[i] if i < len(prev_bids) else None
         c_bid = curr_bids[i] if i < len(curr_bids) else None
         p_ask = prev_asks[i] if i < len(prev_asks) else None
         c_ask = curr_asks[i] if i < len(curr_asks) else None
-
         ofi += _level_ofi_bid(p_bid, c_bid)
         ofi += _level_ofi_ask(p_ask, c_ask)
-
     return ofi
+
+
+def _now_ms() -> int:
+    return int(time.monotonic_ns() // 1_000_000)
+
+
+def compute_price_trend(state: BotState) -> Optional[float]:
+    """
+    Returns the price change (in $) over the last PRICE_TREND_WINDOW_MS.
+    Positive → price rising; Negative → price falling; None → insufficient history.
+    Used as a macro regime gate before acting on OFI/TFI micro-signals.
+    """
+    trend_ms = getattr(config, "PRICE_TREND_WINDOW_MS", 3000)
+    now_ms   = _now_ms()
+    cutoff   = now_ms - trend_ms
+
+    # Prune history outside the window.
+    while state.mid_history and state.mid_history[0][0] < cutoff:
+        state.mid_history.popleft()
+
+    if len(state.mid_history) < 2:
+        return None
+
+    oldest_mid = state.mid_history[0][1]
+    newest_mid = state.mid_history[-1][1]
+    return newest_mid - oldest_mid
 
 
 def process_book_update(state: BotState, new_book: OrderBook) -> Optional[float]:
     """
-    Process a new L2 snapshot, update the OFI rolling window, and return the
-    current normalised OFI signal ∈ [-1, +1].
-
-    Returns None if the window is not yet populated (first tick).
+    Ingest a new L2 snapshot, update the rolling OFI window, and return the
+    spot-depth-normalised OFI signal in [-1, +1].  Returns None on the first tick.
     """
     now_ms = _now_ms()
 
-    # --- Compute delta from previous snapshot ---
+    # Track mid for trend gate.
+    mid = new_book.mid_price()
+    if mid is not None:
+        state.mid_history.append((now_ms, mid))
+
     if state.prev_bids or state.prev_asks:
         delta = compute_ofi_delta(
-            state.prev_bids,
-            state.prev_asks,
-            new_book.bids,
-            new_book.asks,
+            state.prev_bids, state.prev_asks,
+            new_book.bids,  new_book.asks,
             config.OFI_LEVELS,
         )
         state.ofi_window.append((now_ms, delta))
 
-    # --- Update previous snapshot ---
     state.prev_bids = list(new_book.bids[: config.OFI_LEVELS])
     state.prev_asks = list(new_book.asks[: config.OFI_LEVELS])
     state.book = new_book
 
-    # --- Prune stale window entries ---
     cutoff_ms = now_ms - config.OFI_WINDOW_MS
     while state.ofi_window and state.ofi_window[0][0] < cutoff_ms:
         state.ofi_window.popleft()
@@ -146,44 +168,165 @@ def process_book_update(state: BotState, new_book: OrderBook) -> Optional[float]
     if not state.ofi_window:
         return None
 
-    # --- Accumulate raw OFI inside window ---
-    raw_ofi = sum(delta for _, delta in state.ofi_window)
-
-    # --- Normalise by current book depth ---
-    depth_vol = _book_depth_volume(new_book.bids, new_book.asks, config.OFI_LEVELS)
-    normalised = raw_ofi / depth_vol
-
-    # Clip to [-1, 1] to avoid occasional large spikes throwing off threshold logic.
-    normalised = max(-1.0, min(1.0, normalised))
+    raw_ofi    = sum(d for _, d in state.ofi_window)
+    spot_depth = max(_book_depth(new_book.bids, new_book.asks, config.OFI_LEVELS), _MIN_DEPTH)
+    normalised = max(-1.0, min(1.0, raw_ofi / spot_depth))
 
     logger.debug(
-        "OFI raw=%.4f norm=%.4f depth=%.4f window_entries=%d",
-        raw_ofi, normalised, depth_vol, len(state.ofi_window),
+        "OFI raw=%.4f norm=%.4f depth=%.4f entries=%d",
+        raw_ofi, normalised, spot_depth, len(state.ofi_window),
     )
-
     return normalised
 
 
+# ---------------------------------------------------------------------------
+# Trade Flow Imbalance (TFI)
+# ---------------------------------------------------------------------------
+
+def ingest_trade(state: BotState, trade: dict) -> None:
+    """
+    Add a single executed trade to the rolling trade window.
+
+    Hyperliquid trade fields used:
+      side: "B" = buyer-initiated, "A" = seller-initiated
+      sz  : size in BTC
+      time: epoch ms
+    """
+    try:
+        side   = trade.get("side", "")
+        sz     = float(trade.get("sz", 0))
+        ts     = int(trade.get("time", _now_ms()))
+        signed = sz if side == "B" else -sz
+        state.trade_window.append((ts, signed))
+    except Exception:
+        pass
+
+
+def compute_tfi(state: BotState) -> Optional[float]:
+    """
+    Compute normalised Trade Flow Imbalance in [-1, +1] over the last
+    OFI_WINDOW_MS milliseconds of actual executed trades.
+
+    Returns None if no trades have been seen in the window (graceful
+    degradation: OFI-only signal is used when TFI has no data).
+    """
+    now_ms = _now_ms()
+    cutoff = now_ms - config.OFI_WINDOW_MS
+
+    while state.trade_window and state.trade_window[0][0] < cutoff:
+        state.trade_window.popleft()
+
+    if not state.trade_window:
+        return None
+
+    buy_vol  = sum(v for _, v in state.trade_window if v > 0)
+    sell_vol = sum(-v for _, v in state.trade_window if v < 0)
+    total    = buy_vol + sell_vol
+    if total < 1e-9:
+        return None
+
+    return (buy_vol - sell_vol) / total
+
+
+# ---------------------------------------------------------------------------
+# Signal evaluation with all quality gates
+# ---------------------------------------------------------------------------
+
 def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     """
-    Compare normalised OFI against thresholds and apply cooldown.
+    Applies quality gates before emitting a BUY or SELL signal:
+      1. Cooldown          — minimum ms between any two signals
+      2. Spread filter     — suppress if spread > MAX_SPREAD_BPS of mid
+      3. TFI confirmation  — actual trade volume must agree with OFI direction
+      4. Trend gate        — BUY suppressed in falling price regime, SELL in rising
+      5. Persistence       — OFI must exceed threshold on N consecutive ticks
+      6. Anti-flap         — opposite direction blocked for 2x cooldown period
 
     Returns 'buy', 'sell', or None.
     """
     now_ms = _now_ms()
 
-    # Cooldown gate: suppress new signals if the last one was too recent.
+    # 1. Global cooldown
     if now_ms - state.last_signal_ms < config.SIGNAL_COOLDOWN_MS:
         return None
 
+    # 2. Spread liquidity filter
+    spread = state.book.spread()
+    mid    = state.book.mid_price()
+    if spread is not None and mid and mid > 0:
+        spread_bps = spread / mid * 10_000
+        if spread_bps > config.MAX_SPREAD_BPS:
+            logger.debug("Signal suppressed: spread=%.1fbps > max=%.1fbps", spread_bps, config.MAX_SPREAD_BPS)
+            return None
+
+    # 3. TFI confirmation gate.
+    # When no trades have been seen yet (startup or dead market), skip this
+    # check and rely on OFI alone (graceful degradation).
+    tfi = compute_tfi(state)
+    min_tfi = getattr(config, "MIN_TFI_STRENGTH", 0.0)
+    if tfi is not None:
+        ofi_wants_buy  = ofi >= config.OFI_BUY_THRESHOLD
+        ofi_wants_sell = ofi <= config.OFI_SELL_THRESHOLD
+        if ofi_wants_buy  and tfi <= min_tfi:
+            logger.debug("Signal suppressed: OFI=+buy but TFI=%.3f (≤ min %.2f)", tfi, min_tfi)
+            return None
+        if ofi_wants_sell and tfi >= -min_tfi:
+            logger.debug("Signal suppressed: OFI=-sell but TFI=%.3f (≥ -min %.2f)", tfi, min_tfi)
+            return None
+
+    # 4. Short-term price trend gate.
+    # Suppress BUY if price has been falling, and SELL if price has been rising.
+    # This aligns micro OFI signals with the macro regime over the last few seconds.
+    trend = compute_price_trend(state)
+    if trend is not None:
+        ofi_wants_buy_trend  = ofi >= config.OFI_BUY_THRESHOLD
+        ofi_wants_sell_trend = ofi <= config.OFI_SELL_THRESHOLD
+        if ofi_wants_buy_trend  and trend < 0:
+            logger.debug("Signal suppressed: BUY but trend=%.2f$ (falling price)", trend)
+            return None
+        if ofi_wants_sell_trend and trend > 0:
+            logger.debug("Signal suppressed: SELL but trend=%.2f$ (rising price)", trend)
+            return None
+
+    # 5. Persistence counter
+    if not hasattr(state, "_persist_buy"):
+        state._persist_buy  = 0  # type: ignore[attr-defined]
+        state._persist_sell = 0  # type: ignore[attr-defined]
+
+    candidate = None
     if ofi >= config.OFI_BUY_THRESHOLD and state.can_buy():
-        state.last_signal_ms = now_ms
-        logger.info("BUY signal  | OFI=%.4f ≥ threshold=%.4f", ofi, config.OFI_BUY_THRESHOLD)
-        return "buy"
+        state._persist_buy  += 1  # type: ignore[attr-defined]
+        state._persist_sell  = 0  # type: ignore[attr-defined]
+        if state._persist_buy >= config.OFI_PERSISTENCE_TICKS:  # type: ignore[attr-defined]
+            candidate = "buy"
+    elif ofi <= config.OFI_SELL_THRESHOLD and state.can_sell():
+        state._persist_sell += 1  # type: ignore[attr-defined]
+        state._persist_buy   = 0  # type: ignore[attr-defined]
+        if state._persist_sell >= config.OFI_PERSISTENCE_TICKS:  # type: ignore[attr-defined]
+            candidate = "sell"
+    else:
+        state._persist_buy  = 0  # type: ignore[attr-defined]
+        state._persist_sell = 0  # type: ignore[attr-defined]
 
-    if ofi <= config.OFI_SELL_THRESHOLD and state.can_sell():
-        state.last_signal_ms = now_ms
-        logger.info("SELL signal | OFI=%.4f ≤ threshold=%.4f", ofi, config.OFI_SELL_THRESHOLD)
-        return "sell"
+    if candidate is None:
+        return None
 
-    return None
+    # 6. Anti-flap: block opposite direction for 2x cooldown after last signal
+    last_dir = getattr(state, "_last_signal_dir", None)
+    if last_dir is not None and last_dir != candidate:
+        if now_ms - state.last_signal_ms < config.SIGNAL_COOLDOWN_MS * 2:
+            logger.debug("Signal suppressed: anti-flap (last=%s, now=%s)", last_dir, candidate)
+            return None
+
+    state.last_signal_ms = now_ms
+    state._last_signal_dir  = candidate  # type: ignore[attr-defined]
+    state._persist_buy  = 0  # type: ignore[attr-defined]
+    state._persist_sell = 0  # type: ignore[attr-defined]
+
+    tfi_str = f"{tfi:+.3f}" if tfi is not None else "N/A"
+    if candidate == "buy":
+        logger.info("BUY  signal | OFI=%+.4f TFI=%s spread=%.2f$", ofi, tfi_str, spread or 0)
+    else:
+        logger.info("SELL signal | OFI=%+.4f TFI=%s spread=%.2f$", ofi, tfi_str, spread or 0)
+
+    return candidate
