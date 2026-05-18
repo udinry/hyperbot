@@ -226,22 +226,26 @@ async def _reconcile_position(
     loop = asyncio.get_running_loop()
     try:
         data = await loop.run_in_executor(None, info.user_state, wallet_address)
-        for ap in data.get("assetPositions", []):
+        positions = data.get("assetPositions", [])
+        logger.info("Startup reconcile | found %d assetPositions", len(positions))
+        for ap in positions:
             pos = ap.get("position", {})
-            if pos.get("coin") == config.COIN:
-                szi = float(pos.get("szi", 0))
-                if abs(szi) > 1e-8:
-                    entry_px = float(pos["entryPx"]) if pos.get("entryPx") else None
-                    state.inventory_btc = szi
-                    state.entry_price   = entry_px
-                    logger.info(
-                        "Startup reconcile | existing position %.4f BTC @ entry %.2f",
-                        szi, entry_px or 0,
-                    )
-                    if entry_px:
-                        sl_oid = await executor.place_stop_loss(abs(szi), entry_px, szi > 0)
-                        state.sl_oid = sl_oid
-                    return
+            coin = pos.get("coin", "")
+            szi_raw = pos.get("szi", "0")
+            szi = float(szi_raw)
+            logger.info("Startup reconcile | coin=%s szi=%s", coin, szi_raw)
+            if coin == config.COIN and abs(szi) > 1e-8:
+                entry_px = float(pos["entryPx"]) if pos.get("entryPx") else None
+                state.inventory_btc = szi
+                state.entry_price   = entry_px
+                logger.info(
+                    "Startup reconcile | synced position %.4f BTC @ entry %.2f",
+                    szi, entry_px or 0,
+                )
+                if entry_px:
+                    sl_oid = await executor.place_stop_loss(abs(szi), entry_px, szi > 0)
+                    state.sl_oid = sl_oid
+                return
         logger.info("Startup reconcile | no open %s position", config.COIN)
     except Exception as exc:
         logger.warning("Position reconciliation failed: %s", exc)
@@ -384,13 +388,18 @@ async def _handle_book(
     spread_bps = (spread / mid * 10_000) if mid > 0 else 9999
     use_ioc    = spread_bps > config.WIDE_SPREAD_BPS
 
+    # IOC slippage buffer: BTC HTTP RTT ~900ms; add 20 ticks ($20) so limit stays
+    # above the ask even if market moves before the order reaches the exchange.
+    # Actual fill price = best available ask, not this limit — no extra cost incurred.
+    _IOC_SLIP = 20 * config.PRICE_TICK
+
     if signal == "buy":
         best_bid = book.best_bid()
         best_ask = book.best_ask()
         if best_ask is None:
             return
         if use_ioc:
-            price = best_ask.price
+            price = best_ask.price + _IOC_SLIP
         else:
             # ALO: post 1 tick above best bid; clamp below ask to avoid crossing.
             price = (best_bid.price + config.PRICE_TICK) if best_bid else (best_ask.price - config.PRICE_TICK)
@@ -404,7 +413,7 @@ async def _handle_book(
         if best_bid is None:
             return
         if use_ioc:
-            price = best_bid.price
+            price = best_bid.price - _IOC_SLIP
         else:
             # ALO: post 1 tick below best ask; clamp above bid to avoid crossing.
             price = (best_ask.price - config.PRICE_TICK) if best_ask else (best_bid.price + config.PRICE_TICK)
