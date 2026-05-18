@@ -76,7 +76,7 @@ hyperbot/
 |---|---|---|
 | `max_inventory_btc` | 0.01 | pauses quoting at limit |
 | `stop_loss_pct` | 0.003 | 0.3% → $2.31 loss per trade |
-| `max_daily_loss_usd` | 5.0 | circuit breaker (~2 stop-losses) |
+| `max_daily_loss_usd` | 5.0 | starting default; overridden dynamically to 2×stop-loss |
 | `leverage` | 10 | margin per trade ≈ $77 (48% of $160) |
 
 ### Execution Model
@@ -170,6 +170,7 @@ Concurrent tasks: `main_loop`, `risk_monitor` (100ms poll), `ws_health_monitor` 
 - `_round_price` in executor.py uses Python banker's rounding — harmless in practice because all WS prices are already tick-aligned
 - Dynamic sizing: `state.order_size_btc` and `state.max_inventory_btc` are set together in `_refresh_order_size`; `can_buy`/`can_sell`/`risk_monitor` all read from state, not config — so the inventory gate scales automatically with position size
 - Sizing formula: `round(max(0.001, min(0.1, balance×POSITION_RISK_PCT×leverage/mid)), 3)` — 0.1 BTC is a sanity cap only, not a risk limit
+- Circuit breaker formula: `2 × STOP_LOSS_PCT × order_size_btc × mid` — always fires after exactly 2 stop-losses regardless of account size (~2.9% of balance)
 
 ---
 
