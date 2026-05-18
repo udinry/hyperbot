@@ -61,6 +61,7 @@ class OrderExecutor:
         self.state = state
         self.loop = loop
         self._account_address = account_address
+        self._sl_lock = asyncio.Lock()  # serialise concurrent _manage_stop_loss calls
 
     async def _run_in_executor(self, fn, *args):
         return await self.loop.run_in_executor(_POOL, fn, *args)
@@ -276,18 +277,19 @@ class OrderExecutor:
         self.state.sl_oid = None
 
     async def _manage_stop_loss(self) -> None:
-        """Cancel ALL exchange SL orders and place one fresh one matching current position."""
+        """Cancel ALL exchange SL orders and place one fresh one matching current position.
+        Lock serialises concurrent calls from burst fills — without it, 10 fill events
+        arriving simultaneously each spawn a task, all race to place a new SL."""
         if config.OBSERVER_MODE:
             return
-        await self._cancel_all_reduce_only()
-
-        inv = self.state.inventory_btc
-        entry = self.state.entry_price
-        if abs(inv) < 1e-8 or entry is None:
-            return
-
-        sl_oid = await self.place_stop_loss(abs(inv), entry, is_long=inv > 0)
-        self.state.sl_oid = sl_oid
+        async with self._sl_lock:
+            await self._cancel_all_reduce_only()
+            inv = self.state.inventory_btc
+            entry = self.state.entry_price
+            if abs(inv) < 1e-8 or entry is None:
+                return
+            sl_oid = await self.place_stop_loss(abs(inv), entry, is_long=inv > 0)
+            self.state.sl_oid = sl_oid
 
     async def place_stop_loss(self, size: float, entry_price: float, is_long: bool) -> Optional[int]:
         """Place a reduce-only stop-market order on the exchange."""
