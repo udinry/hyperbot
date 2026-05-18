@@ -9,99 +9,111 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg: #0a0a0a; --surface: #111; --surface2: #161616; --border: #1e1e1e;
-      --text: #e2e2e2; --muted: #555; --muted2: #333;
-      --green: #22c55e; --red: #ef4444; --yellow: #eab308; --blue: #3b82f6;
+      --text: #e2e2e2; --muted: #555; --muted2: #2a2a2a;
+      --green: #22c55e; --red: #ef4444; --yellow: #eab308; --blue: #3b82f6; --purple: #a855f7;
       --mono: 'SF Mono','Fira Code','Cascadia Code',monospace;
     }
     body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size: 13px; line-height: 1.5; }
-    .wrap { max-width: 1320px; margin: 0 auto; padding: 24px 20px; }
+    .wrap { max-width: 1360px; margin: 0 auto; padding: 20px; }
 
     /* Header */
-    .hdr { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-    .hdr-left { display: flex; align-items: center; gap: 12px; }
-    h1 { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
-    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; }
+    .hdr { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    .hdr-left { display:flex; align-items:center; gap:10px; }
+    h1 { font-size:16px; font-weight:700; letter-spacing:-.3px; }
+    .badge { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; }
     .badge::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
-    .b-active    { background:rgba(34,197,94,.12);  color:var(--green); }
-    .b-inactive  { background:rgba(239,68,68,.12);  color:var(--red); }
-    .b-failed    { background:rgba(239,68,68,.12);  color:var(--red); }
-    .b-activating{ background:rgba(234,179,8,.12);  color:var(--yellow); }
-    .b-unknown   { background:rgba(85,85,85,.15);   color:var(--muted); }
-    .bot-state   { font-size: 11px; color: var(--muted); font-family: var(--mono); }
-    .controls    { display:flex; gap:8px; }
-    button { padding:6px 16px; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:opacity .15s; }
-    button:hover  { opacity:.82; }
+    .b-active    { background:rgba(34,197,94,.1);  color:var(--green); }
+    .b-inactive,
+    .b-failed    { background:rgba(239,68,68,.1);  color:var(--red); }
+    .b-activating{ background:rgba(234,179,8,.1);  color:var(--yellow); }
+    .b-unknown   { background:rgba(85,85,85,.12);  color:var(--muted); }
+    .bot-state   { font-size:11px; color:var(--muted); font-family:var(--mono); }
+    .controls    { display:flex; gap:6px; }
+    button { padding:5px 14px; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:opacity .15s; }
+    button:hover  { opacity:.8; }
     button:disabled { opacity:.3; cursor:not-allowed; }
     .btn-start { background:var(--green); color:#000; }
     .btn-stop  { background:var(--red);   color:#fff; }
     .btn-ghost { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
 
-    /* Stats */
-    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-bottom:12px; }
-    .stat { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 14px; }
-    .stat-label { font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.7px; margin-bottom:4px; }
-    .stat-value { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.2; }
+    /* Stats row */
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin-bottom:10px; }
+    .stat { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:11px 13px; }
+    .stat-label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:3px; }
+    .stat-value { font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.2; }
+    .stat-sub   { font-size:10px; color:var(--muted); margin-top:2px; font-variant-numeric:tabular-nums; }
     .pos { color:var(--green); } .neg { color:var(--red); } .neu { color:var(--text); }
 
-    /* Position panel */
-    .pos-panel { background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--blue); border-radius:8px; margin-bottom:12px; overflow:hidden; }
-    .pos-panel .phdr { padding:9px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
-    .pos-panel .phdr h2 { font-size:11px; font-weight:600; color:var(--blue); text-transform:uppercase; letter-spacing:.6px; }
-    .pos-panel .pbody { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:0; }
-    .pos-stat { padding:10px 14px; border-right:1px solid var(--border); }
+    /* Performance section */
+    .perf-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin-bottom:10px; }
+    .perf-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:11px 13px; }
+    .perf-card.highlight { border-color:rgba(59,130,246,.3); }
+    .perf-label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:3px; }
+    .perf-value { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.2; }
+    .perf-detail { font-size:10px; color:var(--muted); margin-top:3px; }
+
+    /* Live position */
+    .pos-panel { background:var(--surface); border:1px solid rgba(59,130,246,.25); border-left:3px solid var(--blue); border-radius:8px; margin-bottom:10px; overflow:hidden; }
+    .pos-panel .phdr { padding:8px 13px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .pos-panel .phdr h2 { font-size:10px; font-weight:700; color:var(--blue); text-transform:uppercase; letter-spacing:.7px; }
+    .pos-panel .pbody { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); }
+    .pos-stat { padding:9px 13px; border-right:1px solid var(--border); }
     .pos-stat:last-child { border-right:none; }
-    .pos-stat .stat-label { margin-bottom:3px; }
-    .pos-stat .stat-value { font-size:16px; }
 
     /* Panel */
-    .panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; margin-bottom:12px; overflow:hidden; }
-    .phdr { padding:9px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; margin-bottom:10px; overflow:hidden; }
+    .phdr { padding:9px 13px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .phdr h2 { font-size:12px; font-weight:600; }
-    .phdr .meta { font-size:10px; color:var(--muted); display:flex; align-items:center; gap:8px; }
-    .pbody { padding:14px; }
-    .chart-wrap { height:180px; }
+    .phdr .meta { font-size:10px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+    .pbody { padding:13px; }
+    .chart-wrap { height:200px; position:relative; }
 
-    /* Two-column layout */
-    .cols { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
-    @media(max-width:800px) { .cols { grid-template-columns:1fr; } }
+    /* Period pills */
+    .periods { display:flex; gap:4px; }
+    .pill { padding:2px 9px; border-radius:4px; font-size:10px; font-weight:600; cursor:pointer; border:1px solid var(--border); background:transparent; color:var(--muted); transition:all .12s; }
+    .pill:hover { color:var(--text); border-color:#444; }
+    .pill.active { background:var(--blue); color:#fff; border-color:var(--blue); }
 
-    /* Scrollable mono boxes */
-    .mono-box {
-      font-family:var(--mono); font-size:11px; line-height:1.65;
-      background:#080808; padding:10px 12px;
-      height:320px; overflow-y:auto; overflow-x:hidden;
-    }
-    .mono-box::-webkit-scrollbar { width:5px; }
-    .mono-box::-webkit-scrollbar-track { background:transparent; }
-    .mono-box::-webkit-scrollbar-thumb { background:var(--muted2); border-radius:3px; }
+    /* Two-column */
+    .cols { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+    @media(max-width:820px) { .cols { grid-template-columns:1fr; } }
+
+    /* Mono boxes */
+    .mono-box { font-family:var(--mono); font-size:11px; line-height:1.65; background:#080808; padding:10px 12px; height:300px; overflow-y:auto; overflow-x:hidden; }
+    .mono-box::-webkit-scrollbar { width:4px; }
+    .mono-box::-webkit-scrollbar-thumb { background:var(--muted2); border-radius:2px; }
 
     /* Fill lines */
-    .fill-line { display:flex; gap:0; padding:1px 0; white-space:nowrap; border-bottom:1px solid rgba(255,255,255,.025); }
-    .fill-line:last-child { border-bottom:none; }
-    .f-ts  { color:var(--muted); width:62px; flex-shrink:0; }
-    .f-side{ width:38px; flex-shrink:0; font-weight:700; }
-    .f-dir { color:var(--muted); width:88px; flex-shrink:0; font-size:10px; padding-top:1px; }
-    .f-sz  { color:var(--text); width:90px; flex-shrink:0; }
-    .f-px  { color:var(--text); width:90px; flex-shrink:0; }
-    .f-pnl { width:78px; flex-shrink:0; }
-    .f-cum { flex:1; }
-    .f-fee { color:var(--muted); font-size:10px; padding-top:1px; }
+    .fl { display:flex; gap:0; padding:1.5px 0; border-bottom:1px solid rgba(255,255,255,.02); white-space:nowrap; font-size:10.5px; }
+    .fl:last-child { border-bottom:none; }
+    .f-ts   { color:var(--muted); width:60px; flex-shrink:0; }
+    .f-side { width:36px; flex-shrink:0; font-weight:700; }
+    .f-dir  { color:var(--muted); width:72px; flex-shrink:0; font-size:9.5px; padding-top:1px; }
+    .f-sz   { width:82px; flex-shrink:0; }
+    .f-px   { width:88px; flex-shrink:0; }
+    .f-pnl  { width:70px; flex-shrink:0; }
+    .f-net  { width:70px; flex-shrink:0; }
+    .f-cum  { width:72px; flex-shrink:0; }
+    .f-fee  { color:var(--muted); font-size:9.5px; padding-top:1px; }
     .buy  { color:var(--green); } .sell { color:var(--red); }
 
     /* Log lines */
-    .l-info { color:#5b8def; }
-    .l-warn { color:var(--yellow); }
-    .l-err  { color:var(--red); }
-    .l-text { color:#555; }
+    .ll { font-size:10.5px; padding:1px 0; }
+    .l-info { color:#4a7cd4; } .l-warn { color:var(--yellow); } .l-err { color:var(--red); } .l-txt { color:#3a3a3a; }
 
     .empty { color:var(--muted); text-align:center; padding:40px 0; font-size:12px; }
-    .footer { font-size:10.5px; color:var(--muted); margin-top:4px; display:flex; gap:12px; }
-    .footer span { color:var(--muted2); }
+    .footer { font-size:10px; color:var(--muted); display:flex; gap:10px; margin-top:4px; }
+    .divider { color:var(--muted2); }
+
+    /* Chart legend */
+    .legend { display:flex; gap:12px; font-size:10px; color:var(--muted); }
+    .leg-dot { display:inline-block; width:10px; height:2px; border-radius:1px; margin-right:4px; vertical-align:middle; }
   </style>
 </head>
 <body>
 <div class="wrap">
 
+  <!-- Header -->
   <div class="hdr">
     <div class="hdr-left">
       <h1>Hyperbot</h1>
@@ -115,18 +127,59 @@
     </div>
   </div>
 
+  <!-- Status stats -->
   <div class="stats">
-    <div class="stat"><div class="stat-label">Account Value</div><div class="stat-value neu" id="accountValue">—</div></div>
-    <div class="stat"><div class="stat-label">Realized PnL</div><div class="stat-value" id="realPnl">—</div></div>
-    <div class="stat"><div class="stat-label">Total Fills</div><div class="stat-value neu" id="totalFills">—</div></div>
-    <div class="stat"><div class="stat-label">Mid Price</div><div class="stat-value neu" id="midPrice">—</div></div>
-    <div class="stat"><div class="stat-label">Open Orders</div><div class="stat-value neu" id="openOrders">—</div></div>
+    <div class="stat">
+      <div class="stat-label">Account Value</div>
+      <div class="stat-value neu" id="accountValue">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Mid Price</div>
+      <div class="stat-value neu" id="midPrice">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Open Orders</div>
+      <div class="stat-value neu" id="openOrders">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Bot Status</div>
+      <div class="stat-value neu" id="botStatusStat">—</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Today Fills</div>
+      <div class="stat-value neu" id="totalFills">—</div>
+    </div>
   </div>
 
+  <!-- Performance -->
+  <div class="perf-row">
+    <div class="perf-card highlight">
+      <div class="perf-label">Net PnL (after fees)</div>
+      <div class="perf-value" id="netPnl">—</div>
+      <div class="perf-detail" id="netPnlPeriod">today</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Gross PnL</div>
+      <div class="perf-value" id="grossPnl">—</div>
+      <div class="perf-detail">before fees</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Total Fees Paid</div>
+      <div class="perf-value neg" id="totalFees">—</div>
+      <div class="perf-detail">maker + taker</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Unrealized PnL</div>
+      <div class="perf-value" id="unrealPnl">—</div>
+      <div class="perf-detail">open position</div>
+    </div>
+  </div>
+
+  <!-- Live position -->
   <div class="pos-panel" id="positionPanel" style="display:none">
     <div class="phdr">
       <h2>Live Position</h2>
-      <span class="meta" id="posTs">live from exchange</span>
+      <span class="meta">live from exchange</span>
     </div>
     <div class="pbody">
       <div class="pos-stat"><div class="stat-label">Size</div><div class="stat-value" id="posSize">—</div></div>
@@ -136,123 +189,161 @@
     </div>
   </div>
 
+  <!-- PnL Chart -->
   <div class="panel">
-    <div class="phdr"><h2>Realized PnL</h2><span class="meta" id="pnlMeta"></span></div>
+    <div class="phdr">
+      <div style="display:flex;align-items:center;gap:10px">
+        <h2>PnL Over Time</h2>
+        <div class="legend">
+          <span><span class="leg-dot" style="background:var(--blue);display:inline-block;height:2px;width:12px;border-radius:1px;margin-right:3px;vertical-align:middle"></span>Net</span>
+          <span><span class="leg-dot" style="background:#333;display:inline-block;height:2px;width:12px;border-radius:1px;margin-right:3px;border:1px dashed #444;vertical-align:middle"></span>Gross</span>
+        </div>
+      </div>
+      <div class="periods" id="periodBtns">
+        <button class="pill active" data-days="1" onclick="setPeriod(1)">Today</button>
+        <button class="pill" data-days="3"  onclick="setPeriod(3)">3D</button>
+        <button class="pill" data-days="7"  onclick="setPeriod(7)">7D</button>
+        <button class="pill" data-days="30" onclick="setPeriod(30)">30D</button>
+        <button class="pill" data-days="0"  onclick="setPeriod(0)">All</button>
+      </div>
+    </div>
     <div class="pbody"><div class="chart-wrap"><canvas id="pnlChart"></canvas></div></div>
   </div>
 
+  <!-- Fills + Log -->
   <div class="cols">
     <div class="panel" style="margin-bottom:0">
       <div class="phdr">
         <h2>Fills</h2>
         <span class="meta" id="fillsMeta"></span>
       </div>
-      <div class="mono-box" id="fillsBox"><div class="empty">No fills yet</div></div>
+      <div class="mono-box" id="fillsBox">
+        <div class="empty">No fills yet</div>
+      </div>
     </div>
     <div class="panel" style="margin-bottom:0">
       <div class="phdr">
         <h2>Bot Log</h2>
-        <span class="meta"><button class="btn-ghost" style="padding:2px 9px;font-size:10px" onclick="loadLog(true)">Reload</button></span>
+        <span class="meta"><button class="btn-ghost" style="padding:2px 8px;font-size:10px" onclick="loadLog(true)">Reload</button></span>
       </div>
       <div class="mono-box" id="logBox">Loading…</div>
     </div>
   </div>
 
   <div class="footer">
-    Auto-refreshes every 5s &nbsp;|&nbsp; Last update: <span id="lastTs">—</span>
+    Auto-refreshes every 5s <span class="divider">|</span> Last update: <span id="lastTs">—</span>
   </div>
 </div>
 
 <script>
 let chart = null;
+let chartPeriod = 1;
 let fillsAtBottom = true;
 let logAtBottom   = true;
 
-/* ── Chart ─────────────────────────────────────────────────────── */
+/* ── Chart ──────────────────────────────────────────────────────── */
 function initChart() {
   const ctx = document.getElementById('pnlChart').getContext('2d');
+  const mkGrad = (ctx, color) => {
+    const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 180);
+    g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+    return g;
+  };
   chart = new Chart(ctx, {
     type: 'line',
-    data: { labels: [], datasets: [{
-      data: [], borderColor: '#3b82f6', borderWidth: 1.5,
-      pointRadius: 2, fill: true,
-      backgroundColor: ctx => {
-        const g = ctx.chart.ctx.createLinearGradient(0,0,0,160);
-        g.addColorStop(0,'rgba(59,130,246,.18)'); g.addColorStop(1,'rgba(59,130,246,0)');
-        return g;
+    data: { labels: [], datasets: [
+      {
+        label: 'Net PnL',
+        data: [], borderColor: '#3b82f6', borderWidth: 2,
+        pointRadius: 2, fill: true,
+        backgroundColor: c => mkGrad(c, 'rgba(59,130,246,.15)'),
+        tension: 0.3, order: 1,
       },
-      tension: 0.3,
-    }]},
+      {
+        label: 'Gross PnL',
+        data: [], borderColor: '#333', borderWidth: 1.5,
+        borderDash: [4,3], pointRadius: 0, fill: false,
+        tension: 0.3, order: 2,
+      },
+    ]},
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: c=>'$'+c.parsed.y.toFixed(4) } } },
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: c => (c.dataset.label || '') + ': $' + c.parsed.y.toFixed(4),
+        }},
+      },
       scales: {
-        x: { ticks:{ color:'#3a3a3a', maxTicksLimit:8, font:{size:9} }, grid:{ color:'#141414' } },
-        y: { ticks:{ color:'#3a3a3a', font:{size:9}, callback:v=>'$'+v.toFixed(2) }, grid:{ color:'#141414' } },
+        x: { ticks:{ color:'#333', maxTicksLimit:8, font:{size:9} }, grid:{ color:'#111' } },
+        y: { ticks:{ color:'#333', font:{size:9}, callback: v => '$'+v.toFixed(2) }, grid:{ color:'#111' } },
       },
     },
   });
 }
 
-/* ── Helpers ────────────────────────────────────────────────────── */
-function pnlClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
-function pnlFmt(v, d=4) {
-  const s = v > 0 ? '+' : '';
-  return `<span class="${pnlClass(v)}">${s}$${Math.abs(v).toFixed(d)}</span>`;
-}
-function fmtPrice(v) { return '$' + v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function fmtTs(ms) {
-  const d = new Date(ms);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  const t = d.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  return sameDay ? t : d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' + t;
-}
-function scrollBottom(el) { el.scrollTop = el.scrollHeight; }
-function trackScroll(el, key) {
-  el.addEventListener('scroll', () => {
-    window[key] = el.scrollHeight - el.scrollTop <= el.clientHeight + 8;
+function setPeriod(days) {
+  chartPeriod = days;
+  document.querySelectorAll('.pill').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.days) === days);
   });
+  loadPnl();
+  loadFills();
+}
+
+/* ── Helpers ────────────────────────────────────────────────────── */
+function cls(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
+function fmt(v, d = 2) {
+  const s = v >= 0 ? '+' : '-';
+  return `<span class="${cls(v)}">${s}$${Math.abs(v).toFixed(d)}</span>`;
+}
+function fmtPrice(v) {
+  return '$' + v.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function fmtTs(ms) {
+  const d = new Date(ms), now = new Date();
+  const t = d.toLocaleTimeString('en-US', {hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  return d.toDateString() === now.toDateString() ? t : d.toLocaleDateString('en-US',{month:'short',day:'numeric'}) + ' ' + t;
+}
+function trackScroll(el, key) {
+  el.addEventListener('scroll', () => { window[key] = el.scrollHeight - el.scrollTop <= el.clientHeight + 10; });
 }
 
 /* ── Status ─────────────────────────────────────────────────────── */
 async function loadStatus() {
   try {
     const r = await fetch('/hyperbot/api/status');
-    const d = await r.json();
-    const svc = d.service || 'unknown';
-    const st  = d.state  || {};
+    const { service: svc, state: st } = await r.json();
 
     const badge = document.getElementById('svcBadge');
     badge.textContent = svc;
     badge.className = 'badge b-' + ({'active':'active','inactive':'inactive','failed':'failed','activating':'activating'}[svc] || 'unknown');
 
-    const parts = [];
-    if (st.status)     parts.push('bot:' + st.status);
-    if (st.mid != null) parts.push('mid:$' + st.mid.toFixed(2));
-    document.getElementById('botState').textContent = parts.join('  ');
+    document.getElementById('botState').textContent = st.mid ? `mid:$${st.mid.toFixed(2)}` : '';
+    document.getElementById('botStatusStat').textContent = st.status || '—';
+    document.getElementById('midPrice').textContent = st.mid ? fmtPrice(st.mid) : '—';
+    document.getElementById('openOrders').textContent = st.open_orders ?? '—';
+    document.getElementById('totalFills').textContent  = st.fills ?? '—';
 
-    if (st.realized_pnl != null) {
-      document.getElementById('realPnl').innerHTML = pnlFmt(st.realized_pnl, 2);
-    }
-    document.getElementById('totalFills').textContent  = st.fills       ?? '—';
-    document.getElementById('openOrders').textContent  = st.open_orders ?? '—';
-    if (st.mid != null) document.getElementById('midPrice').textContent = fmtPrice(st.mid);
+    // Performance
+    if (st.net_pnl != null)   document.getElementById('netPnl').innerHTML   = fmt(st.net_pnl, 4);
+    if (st.realized_pnl != null) document.getElementById('grossPnl').innerHTML = fmt(st.realized_pnl, 4);
+    if (st.total_fees != null) document.getElementById('totalFees').innerHTML = `<span class="neg">-$${st.total_fees.toFixed(4)}</span>`;
+    if (st.unrealized_pnl != null) document.getElementById('unrealPnl').innerHTML = fmt(st.unrealized_pnl, 4);
 
     document.getElementById('btnStart').disabled = svc === 'active' || svc === 'activating';
     document.getElementById('btnStop').disabled  = svc !== 'active';
-  } catch(e) { console.error('status:', e); }
+  } catch(e) { console.error(e); }
 }
 
-/* ── Portfolio / position ───────────────────────────────────────── */
+/* ── Portfolio ──────────────────────────────────────────────────── */
 async function loadPortfolio() {
   try {
     const r = await fetch('/hyperbot/api/portfolio');
     const d = await r.json();
     if (d.error) return;
-
     document.getElementById('accountValue').textContent = fmtPrice(d.account_value);
-
     const panel = document.getElementById('positionPanel');
     const pos = d.position;
     if (pos && Math.abs(pos.size) > 0) {
@@ -261,108 +352,104 @@ async function loadPortfolio() {
       const sign = pos.size > 0 ? '+' : '';
       document.getElementById('posSize').innerHTML  = `<span class="${dir}">${sign}${pos.size.toFixed(4)} BTC</span>`;
       document.getElementById('posEntry').textContent = pos.entry_price ? fmtPrice(pos.entry_price) : '—';
-      document.getElementById('posUnreal').innerHTML  = pnlFmt(pos.unrealized_pnl, 2);
+      document.getElementById('posUnreal').innerHTML  = fmt(pos.unrealized_pnl, 2);
       document.getElementById('posLiq').textContent   = pos.liquidation_px ? fmtPrice(parseFloat(pos.liquidation_px)) : '—';
+      document.getElementById('unrealPnl').innerHTML  = fmt(pos.unrealized_pnl, 4);
     } else {
       panel.style.display = 'none';
+      document.getElementById('unrealPnl').innerHTML = '<span class="neu">$0.00</span>';
     }
-  } catch(e) { console.error('portfolio:', e); }
+  } catch(e) { console.error(e); }
 }
 
 /* ── Fills ──────────────────────────────────────────────────────── */
 async function loadFills() {
   try {
-    const r = await fetch('/hyperbot/api/trades');
+    const r = await fetch(`/hyperbot/api/trades?days=${chartPeriod}`);
     const d = await r.json();
-    const fills = (d.trades || []).slice().reverse(); // newest first
+    const fills = (d.trades || []).slice().reverse();  // newest first
     const box = document.getElementById('fillsBox');
-    document.getElementById('fillsMeta').textContent = fills.length ? fills.length + ' fills' : '';
+    const label = chartPeriod === 0 ? 'all time' : chartPeriod === 1 ? 'today' : `${chartPeriod}d`;
+    document.getElementById('fillsMeta').textContent = fills.length ? `${fills.length} fills · ${label}` : label;
 
     if (!fills.length) { box.innerHTML = '<div class="empty">No fills yet</div>'; return; }
 
     const prev = box.scrollHeight - box.scrollTop;
     box.innerHTML = fills.map(f => {
-      const sideClass = f.side === 'BUY' ? 'buy' : 'sell';
-      const dir = f.dir ? f.dir.replace('Open ','O-').replace('Close ','C-') : '';
-      return `<div class="fill-line">` +
+      const sc = f.side === 'BUY' ? 'buy' : 'sell';
+      const dir = (f.dir || '').replace('Open ','O-').replace('Close ','C-');
+      return `<div class="fl">` +
         `<span class="f-ts">${fmtTs(f.time_ms)}</span>` +
-        `<span class="f-side ${sideClass}">${f.side}</span>` +
+        `<span class="f-side ${sc}">${f.side}</span>` +
         `<span class="f-dir">${dir}</span>` +
         `<span class="f-sz">${f.size.toFixed(4)} BTC</span>` +
         `<span class="f-px">${fmtPrice(f.price)}</span>` +
-        `<span class="f-pnl">${pnlFmt(f.closed_pnl,4)}</span>` +
-        `<span class="f-cum">${pnlFmt(f.cum_pnl,4)}</span>` +
-        `<span class="f-fee">-$${Math.abs(f.fee).toFixed(4)}</span>` +
+        `<span class="f-pnl">${fmt(f.closed_pnl,4)}</span>` +
+        `<span class="f-net" title="net of fee">${fmt(f.net_pnl,4)}</span>` +
+        `<span class="f-cum">${fmt(f.cum_net,4)}</span>` +
+        `<span class="f-fee">-$${f.fee.toFixed(4)}</span>` +
         `</div>`;
     }).join('');
 
-    if (fillsAtBottom) scrollBottom(box);
+    if (fillsAtBottom) box.scrollTop = box.scrollHeight;
     else box.scrollTop = box.scrollHeight - prev;
-  } catch(e) { console.error('fills:', e); }
+  } catch(e) { console.error(e); }
 }
 
 /* ── PnL chart ──────────────────────────────────────────────────── */
 async function loadPnl() {
   try {
-    const r = await fetch('/hyperbot/api/pnl');
-    const d = await r.json();
-    const series = d.series || [];
-    if (!chart) return;
+    const r = await fetch(`/hyperbot/api/pnl?days=${chartPeriod}`);
+    const { series } = await r.json();
+    if (!chart || !series) return;
     chart.data.labels = series.map(p => fmtTs(p.t));
-    chart.data.datasets[0].data = series.map(p => p.v);
-    const cum = series.length ? series[series.length-1].v : null;
-    document.getElementById('pnlMeta').innerHTML = cum != null ? pnlFmt(cum,4) + ' cumulative' : '';
+    chart.data.datasets[0].data = series.map(p => p.net);
+    chart.data.datasets[1].data = series.map(p => p.gross);
     chart.update('none');
-  } catch(e) { console.error('pnl:', e); }
+  } catch(e) { console.error(e); }
 }
 
 /* ── Log ────────────────────────────────────────────────────────── */
 async function loadLog(force) {
   try {
     const r = await fetch('/hyperbot/api/log');
-    const d = await r.json();
+    const { lines } = await r.json();
     const box = document.getElementById('logBox');
     const prev = box.scrollHeight - box.scrollTop;
-
-    const lines = d.lines || [];
-    if (!lines.length) { box.textContent = 'No log output yet.'; return; }
+    if (!lines || !lines.length) { box.textContent = 'No output yet.'; return; }
     box.innerHTML = lines.map(l => {
       const e = l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      if (/\[(ERROR|CRITICAL)\]/.test(e)) return `<div class="l-err">${e}</div>`;
-      if (/\[WARNING\]/.test(e))          return `<div class="l-warn">${e}</div>`;
-      if (/\[INFO\]/.test(e))             return `<div class="l-info">${e}</div>`;
-      return `<div class="l-text">${e}</div>`;
+      if (/\[(ERROR|CRITICAL)\]/.test(e)) return `<div class="ll l-err">${e}</div>`;
+      if (/\[WARNING\]/.test(e))          return `<div class="ll l-warn">${e}</div>`;
+      if (/\[INFO\]/.test(e))             return `<div class="ll l-info">${e}</div>`;
+      return `<div class="ll l-txt">${e}</div>`;
     }).join('');
-
-    if (logAtBottom || force) scrollBottom(box);
+    if (logAtBottom || force) box.scrollTop = box.scrollHeight;
     else box.scrollTop = box.scrollHeight - prev;
-  } catch(e) { console.error('log:', e); }
+  } catch(e) { console.error(e); }
 }
 
-/* ── Bot controls ───────────────────────────────────────────────── */
+/* ── Controls ───────────────────────────────────────────────────── */
 async function startBot() {
   document.getElementById('btnStart').disabled = true;
-  try { await fetch('/hyperbot/api/start', {method:'POST'}); } catch(e) {}
+  await fetch('/hyperbot/api/start', {method:'POST'}).catch(()=>{});
   setTimeout(refresh, 2500);
 }
 async function stopBot() {
   document.getElementById('btnStop').disabled = true;
-  try { await fetch('/hyperbot/api/stop', {method:'POST'}); } catch(e) {}
+  await fetch('/hyperbot/api/stop', {method:'POST'}).catch(()=>{});
   setTimeout(refresh, 3000);
 }
 
-/* ── Main refresh ───────────────────────────────────────────────── */
+/* ── Main ───────────────────────────────────────────────────────── */
 async function refresh() {
   document.getElementById('lastTs').textContent = new Date().toLocaleTimeString();
   await Promise.all([loadStatus(), loadPortfolio(), loadFills(), loadPnl()]);
 }
 
 initChart();
-const fillsBox = document.getElementById('fillsBox');
-const logBox   = document.getElementById('logBox');
-trackScroll(fillsBox, 'fillsAtBottom');
-trackScroll(logBox,   'logAtBottom');
-
+trackScroll(document.getElementById('fillsBox'), 'fillsAtBottom');
+trackScroll(document.getElementById('logBox'),   'logAtBottom');
 refresh();
 loadLog(true);
 setInterval(refresh, 5000);

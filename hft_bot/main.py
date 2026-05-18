@@ -581,7 +581,7 @@ async def run() -> None:
     queue: asyncio.Queue = asyncio.Queue(maxsize=10_000)
 
     state    = BotState()
-    executor = OrderExecutor(exchange=_exchange, state=state, loop=loop)
+    executor = OrderExecutor(exchange=_exchange, state=state, loop=loop, account_address=_account_address)
 
     _install_signal_handlers(state, executor, loop)
 

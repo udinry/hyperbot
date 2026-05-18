@@ -50,10 +50,17 @@ def _round_size(sz: float) -> float:
 
 
 class OrderExecutor:
-    def __init__(self, exchange, state: BotState, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self,
+        exchange,
+        state: BotState,
+        loop: asyncio.AbstractEventLoop,
+        account_address: str = "",
+    ) -> None:
         self.exchange = exchange
         self.state = state
         self.loop = loop
+        self._account_address = account_address
 
     async def _run_in_executor(self, fn, *args):
         return await self.loop.run_in_executor(_POOL, fn, *args)
@@ -231,14 +238,48 @@ class OrderExecutor:
         except Exception as exc:
             logger.error("handle_fill error: %s | raw=%s", exc, fill, exc_info=True)
 
+    async def _cancel_all_reduce_only(self) -> None:
+        """Fetch ALL open reduce-only orders for the coin and cancel them.
+        More reliable than tracking sl_oid alone — prevents accumulation when
+        the tracked oid is stale (missed cancel, crash, exchange_sync re-arm, etc.)."""
+        if not self._account_address:
+            # Fallback to tracked oid only
+            if self.state.sl_oid is not None:
+                await self._cancel_sl(self.state.sl_oid)
+                self.state.sl_oid = None
+            return
+
+        import json as _json, urllib.request as _ur
+
+        def _fetch():
+            payload = _json.dumps({"type": "openOrders", "user": self._account_address}).encode()
+            req = _ur.Request(
+                config.API_URL.rstrip("/") + "/info",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=5) as resp:
+                return _json.loads(resp.read())
+
+        try:
+            orders = await self._run_in_executor(_fetch)
+            stale = [o for o in orders if o.get("coin") == config.COIN and o.get("reduceOnly")]
+            if stale:
+                logger.info("Cancelling %d reduce-only order(s) before re-arming SL", len(stale))
+                for o in stale:
+                    await self._cancel_sl(int(o["oid"]))
+        except Exception as exc:
+            logger.warning("_cancel_all_reduce_only failed: %s — falling back to tracked oid", exc)
+            if self.state.sl_oid is not None:
+                await self._cancel_sl(self.state.sl_oid)
+        self.state.sl_oid = None
+
     async def _manage_stop_loss(self) -> None:
-        """Cancel stale exchange SL and place a fresh one matching current position."""
+        """Cancel ALL exchange SL orders and place one fresh one matching current position."""
         if config.OBSERVER_MODE:
             return
-        # Cancel previous SL (reduce_only auto-cancels on full close, but cancel anyway)
-        if self.state.sl_oid is not None:
-            await self._cancel_sl(self.state.sl_oid)
-            self.state.sl_oid = None
+        await self._cancel_all_reduce_only()
 
         inv = self.state.inventory_btc
         entry = self.state.entry_price
