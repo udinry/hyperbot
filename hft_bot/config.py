@@ -102,7 +102,7 @@ WIDE_SPREAD_BPS: float = float(os.getenv("WIDE_SPREAD_BPS", "5.0"))
 LIMIT_ORDER_TIMEOUT_MS: int = int(os.getenv("LIMIT_ORDER_TIMEOUT_MS", "800"))
 
 # Tick size for BTC on Hyperliquid perp (price precision).
-PRICE_TICK: float = float(os.getenv("PRICE_TICK", "0.1"))
+PRICE_TICK: float = float(os.getenv("PRICE_TICK", "1.0"))
 
 # Size decimal places for BTC on Hyperliquid perp.
 SIZE_DECIMALS: int = int(os.getenv("SIZE_DECIMALS", "3"))
