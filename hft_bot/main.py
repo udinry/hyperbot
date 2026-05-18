@@ -263,6 +263,38 @@ def _fetch_exchange_position() -> Optional[dict]:
     return None
 
 
+async def _cancel_stale_reduce_only_orders(executor: "OrderExecutor") -> None:
+    """On startup, cancel any lingering reduce-only BTC orders left from a previous session.
+    Without this, every restart leaves an orphaned SL on the exchange."""
+    import urllib.request as _ur, json as _json
+    loop = asyncio.get_running_loop()
+
+    def _fetch_open():
+        payload = _json.dumps({"type": "openOrders", "user": _account_address}).encode()
+        req = _ur.Request(
+            config.API_URL.rstrip("/") + "/info",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with _ur.urlopen(req, timeout=5) as resp:
+            return _json.loads(resp.read())
+
+    try:
+        orders = await loop.run_in_executor(None, _fetch_open)
+        stale = [o for o in orders if o.get("coin") == config.COIN and o.get("reduceOnly")]
+        if stale:
+            logger.warning(
+                "Startup: cancelling %d stale reduce-only order(s) from previous session", len(stale)
+            )
+            for o in stale:
+                await executor._cancel_sl(int(o["oid"]))
+        else:
+            logger.info("Startup: no stale reduce-only orders found")
+    except Exception as exc:
+        logger.warning("_cancel_stale_reduce_only_orders failed: %s", exc)
+
+
 async def _reconcile_position(
     state: BotState, executor: "OrderExecutor"
 ) -> None:
@@ -560,6 +592,7 @@ async def run() -> None:
     _info_rest = Info(base_url=config.API_URL, skip_ws=True)
     if not config.OBSERVER_MODE and _wallet:
         await _refresh_order_size(state, _info_rest, _account_address)
+        await _cancel_stale_reduce_only_orders(executor)
         await _reconcile_position(state, executor)
     logger.info("Order size: %.4f BTC", state.order_size_btc)
 

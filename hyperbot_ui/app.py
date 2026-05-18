@@ -4,10 +4,10 @@ import json
 import re
 import subprocess
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 WALLET_ADDRESS = "0x70C780d4e1497598eEB0ae54CCA6011CD55FF89D"
 HL_API_URL = "https://api.hyperliquid.xyz/info"
@@ -35,7 +35,7 @@ def _svc_status() -> str:
         return "unknown"
 
 
-def _hl_post(payload: dict) -> dict:
+def _hl_post(payload: dict):
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         HL_API_URL, data=data,
@@ -45,13 +45,27 @@ def _hl_post(payload: dict) -> dict:
         return json.loads(resp.read())
 
 
+def _period_start_ms(days: int) -> int:
+    """Unix ms for start of period. days=0 → all time. days=1 → UTC midnight today."""
+    if days == 0:
+        return 0
+    if days == 1:
+        now = datetime.now(timezone.utc)
+        sod = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return int(sod.timestamp() * 1000)
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    return int(start.timestamp() * 1000)
+
+
 def _fetch_exchange_fills(since_ms: int = 0) -> list:
-    """Pull BTC fills for the master account from Hyperliquid REST.
-    since_ms: Unix ms cutoff — only returns fills at or after this timestamp.
-    Returns oldest-first list with running cumulative PnL."""
+    """Pull BTC fills for the master account. Returns oldest-first with cumulative PnL (gross and net)."""
     raw = _hl_post({"type": "userFills", "user": WALLET_ADDRESS})
+    # HL returns newest-first; sort ascending so cumulative sums are chronological
+    raw = sorted(raw, key=lambda f: int(f.get("time", 0)))
     fills = []
-    cum = 0.0
+    cum_gross = 0.0
+    cum_fees  = 0.0
+    cum_net   = 0.0
     for f in raw:
         if f.get("coin") != "BTC":
             continue
@@ -59,8 +73,11 @@ def _fetch_exchange_fills(since_ms: int = 0) -> list:
         if since_ms and t < since_ms:
             continue
         cpnl = float(f.get("closedPnl", 0))
-        fee  = float(f.get("fee", 0))
-        cum += cpnl
+        fee  = abs(float(f.get("fee", 0)))   # always positive cost
+        net  = cpnl - fee
+        cum_gross += cpnl
+        cum_fees  += fee
+        cum_net   += net
         fills.append({
             "time_ms":    t,
             "oid":        int(f.get("oid", 0)),
@@ -70,23 +87,24 @@ def _fetch_exchange_fills(since_ms: int = 0) -> list:
             "size":       float(f.get("sz", 0)),
             "fee":        round(fee, 4),
             "closed_pnl": round(cpnl, 4),
-            "cum_pnl":    round(cum, 4),
+            "net_pnl":    round(net, 4),
+            "cum_gross":  round(cum_gross, 4),
+            "cum_fees":   round(cum_fees, 4),
+            "cum_net":    round(cum_net, 4),
         })
     return fills  # oldest-first; frontend reverses for display
 
 
 def _parse_log():
     last_state = {}
-
     if not BOT_LOG.exists():
         return last_state
-
     try:
         with open(BOT_LOG, "r", errors="replace") as fh:
             for line in fh:
-                m2 = _STATE_RE.search(line)
-                if m2:
-                    ts, status, inv, entry, mid_s, unreal, real, fills_n, oo = m2.groups()
+                m = _STATE_RE.search(line)
+                if m:
+                    ts, status, inv, entry, mid_s, unreal, real, fills_n, oo = m.groups()
                     last_state = {
                         "time": ts,
                         "status": status,
@@ -100,7 +118,6 @@ def _parse_log():
                     }
     except Exception:
         pass
-
     return last_state
 
 
@@ -110,21 +127,20 @@ def index():
     return render_template("hyperbot.html")
 
 
-def _today_start_ms() -> int:
-    """Unix ms for 00:00:00 UTC today."""
-    now = datetime.now(timezone.utc)
-    sod = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(sod.timestamp() * 1000)
-
-
 @app.route("/hyperbot/api/status")
 def api_status():
     last_state = _parse_log()
-    # Augment with today's realized PnL and fill count from exchange (source of truth)
     try:
-        fills = _fetch_exchange_fills(since_ms=_today_start_ms())
-        last_state["realized_pnl"] = fills[-1]["cum_pnl"] if fills else 0.0
-        last_state["fills"] = len(fills)
+        fills = _fetch_exchange_fills(since_ms=_period_start_ms(1))
+        if fills:
+            last_state["realized_pnl"]  = fills[-1]["cum_gross"]
+            last_state["net_pnl"]        = fills[-1]["cum_net"]
+            last_state["total_fees"]     = fills[-1]["cum_fees"]
+            last_state["fills"]          = len(fills)
+        else:
+            last_state.setdefault("realized_pnl", 0.0)
+            last_state.setdefault("net_pnl", 0.0)
+            last_state.setdefault("total_fees", 0.0)
     except Exception:
         pass
     return jsonify({"service": _svc_status(), "state": last_state})
@@ -132,8 +148,9 @@ def api_status():
 
 @app.route("/hyperbot/api/trades")
 def api_trades():
+    days = request.args.get("days", 1, type=int)
     try:
-        fills = _fetch_exchange_fills(since_ms=_today_start_ms())
+        fills = _fetch_exchange_fills(since_ms=_period_start_ms(days))
     except Exception as e:
         return jsonify({"error": str(e), "trades": []}), 500
     return jsonify({"trades": fills, "total": len(fills)})
@@ -141,11 +158,12 @@ def api_trades():
 
 @app.route("/hyperbot/api/pnl")
 def api_pnl():
+    days = request.args.get("days", 1, type=int)
     try:
-        fills = _fetch_exchange_fills(since_ms=_today_start_ms())
+        fills = _fetch_exchange_fills(since_ms=_period_start_ms(days))
     except Exception as e:
         return jsonify({"error": str(e), "series": []}), 500
-    series = [{"t": f["time_ms"], "v": f["cum_pnl"]} for f in fills]
+    series = [{"t": f["time_ms"], "gross": f["cum_gross"], "net": f["cum_net"]} for f in fills]
     return jsonify({"series": series})
 
 
@@ -164,19 +182,9 @@ def api_stop():
 @app.route("/hyperbot/api/portfolio")
 def api_portfolio():
     try:
-        payload = json.dumps({"type": "clearinghouseState", "user": WALLET_ADDRESS}).encode()
-        req = urllib.request.Request(
-            HL_API_URL,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-
+        data = _hl_post({"type": "clearinghouseState", "user": WALLET_ADDRESS})
         account_value = float(data["marginSummary"]["accountValue"])
         withdrawable  = float(data.get("withdrawable", 0))
-
         position = None
         for ap in data.get("assetPositions", []):
             pos = ap.get("position", {})
@@ -191,12 +199,7 @@ def api_portfolio():
                         "liquidation_px": pos.get("liquidationPx"),
                     }
                 break
-
-        return jsonify({
-            "account_value": round(account_value, 2),
-            "withdrawable":  round(withdrawable, 2),
-            "position":      position,
-        })
+        return jsonify({"account_value": round(account_value, 2), "withdrawable": round(withdrawable, 2), "position": position})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
