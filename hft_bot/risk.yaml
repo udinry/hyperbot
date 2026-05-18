@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
 # Hyperliquid HFT Bot — Risk Configuration
-# All values here are hot-reloadable; edit and send SIGHUP to reload.
+# Changes require a bot restart to take effect (no live hot-reload implemented).
 # Tuned for a ~$160 account with 0.01 BTC position size.
 # ---------------------------------------------------------------------------
 
