@@ -327,7 +327,11 @@ async def _handle_book(
         best_ask = book.best_ask()
         if best_ask is None:
             return
-        price = best_ask.price if use_ioc else (best_bid.price if best_bid else best_ask.price - config.PRICE_TICK)
+        if use_ioc:
+            price = best_ask.price
+        else:
+            # ALO: post 1 tick above best bid to improve fill probability
+            price = (best_bid.price + config.PRICE_TICK) if best_bid else (best_ask.price - config.PRICE_TICK)
         await executor.place_limit_order(is_buy=True, price=price, size=config.ORDER_SIZE_BTC, spread=spread)
 
     elif signal == "sell":
@@ -335,7 +339,11 @@ async def _handle_book(
         best_ask = book.best_ask()
         if best_bid is None:
             return
-        price = best_bid.price if use_ioc else (best_ask.price if best_ask else best_bid.price + config.PRICE_TICK)
+        if use_ioc:
+            price = best_bid.price
+        else:
+            # ALO: post 1 tick below best ask to improve fill probability
+            price = (best_ask.price - config.PRICE_TICK) if best_ask else (best_bid.price + config.PRICE_TICK)
         await executor.place_limit_order(is_buy=False, price=price, size=config.ORDER_SIZE_BTC, spread=spread)
 
 
