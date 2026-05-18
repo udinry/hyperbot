@@ -85,13 +85,22 @@ from state import BotState, BotStatus, Level, OrderBook
 from strategy import evaluate_signal, ingest_trade, process_book_update
 
 _exchange = None
+_account_address: str = ""   # master account address used for all reads
 if not config.OBSERVER_MODE:
     from eth_account import Account
     from hyperliquid.exchange import Exchange
 
     _wallet = Account.from_key(config.PRIVATE_KEY)
-    logger.info("Wallet address: %s", _wallet.address)
-    _exchange = Exchange(wallet=_wallet, base_url=config.API_URL)
+    # If ACCOUNT_ADDRESS is set, the private key is an API agent signing on behalf
+    # of the master account.  All reads (positions, fills) must use master address.
+    _account_address = config.ACCOUNT_ADDRESS or _wallet.address
+    logger.info("Signing wallet: %s", _wallet.address)
+    logger.info("Account (master): %s", _account_address)
+    _exchange = Exchange(
+        wallet=_wallet,
+        base_url=config.API_URL,
+        account_address=_account_address if config.ACCOUNT_ADDRESS else None,
+    )
     logger.info("Exchange initialised on %s", config.API_URL)
 else:
     logger.warning("OBSERVER MODE — no orders will be placed")
@@ -128,13 +137,13 @@ class WSManager:
 
         if not config.OBSERVER_MODE and _wallet:
             sid2 = self._info.subscribe(
-                {"type": "userFills", "user": _wallet.address},
+                {"type": "userFills", "user": _account_address},
                 self._on_fills,
             )
             self._sub_ids.append(sid2)
 
             sid3 = self._info.subscribe(
-                {"type": "orderUpdates", "user": _wallet.address},
+                {"type": "orderUpdates", "user": _account_address},
                 self._on_order_updates,
             )
             self._sub_ids.append(sid3)
@@ -220,12 +229,12 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
 
 
 def _fetch_exchange_position() -> Optional[dict]:
-    """Direct REST call — returns position dict or None. Does NOT use SDK (SDK user_state
-    was observed to return empty assetPositions despite a live position existing)."""
+    """Direct REST call using MASTER account address — returns position dict or None.
+    Must NOT use the agent address (_wallet.address) which has no positions."""
     import urllib.request as _ur, json as _json
     payload = _json.dumps({
         "type": "clearinghouseState",
-        "user": _wallet.address if _wallet else "",
+        "user": _account_address,
     }).encode()
     req = _ur.Request(
         config.API_URL.rstrip("/") + "/info",
@@ -540,7 +549,7 @@ async def run() -> None:
     # Refreshed every 5 min by position_sizer task. Skipped in observer mode.
     _info_rest = Info(base_url=config.API_URL, skip_ws=True)
     if not config.OBSERVER_MODE and _wallet:
-        await _refresh_order_size(state, _info_rest, _wallet.address)
+        await _refresh_order_size(state, _info_rest, _account_address)
         await _reconcile_position(state, executor)
     logger.info("Order size: %.4f BTC", state.order_size_btc)
 
@@ -567,7 +576,7 @@ async def run() -> None:
     logger.info("Bot is LIVE | %s", state.summary())
 
     sizer_task = (
-        loop.create_task(position_sizer(state, _info_rest, _wallet.address), name="position_sizer")
+        loop.create_task(position_sizer(state, _info_rest, _account_address), name="position_sizer")
         if not config.OBSERVER_MODE and _wallet else None
     )
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template
 
-WALLET_ADDRESS = "0x8d5BaFE283380554d3e669Ad2D6aa109Bf60458e"
+WALLET_ADDRESS = "0x70C780d4e1497598eEB0ae54CCA6011CD55FF89D"
 HL_API_URL = "https://api.hyperliquid.xyz/info"
 
 BOT_SERVICE = "hyperbot-bot"
