@@ -213,8 +213,14 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
                 "Position resize | balance=$%.2f mid=%.2f → %.4f BTC (was %.4f)",
                 balance, mid, new_size, state.order_size_btc,
             )
-            state.order_size_btc   = new_size
+            state.order_size_btc    = new_size
             state.max_inventory_btc = new_size  # inventory limit tracks order size
+            # Circuit breaker = 2 stop-losses: always fires after 2 worst-case trades.
+            state.max_daily_loss_usd = round(2 * config.STOP_LOSS_PCT * new_size * mid, 2)
+            logger.info(
+                "Circuit breaker set to $%.2f (2 × %.1f%% SL × %.4f BTC × $%.0f)",
+                state.max_daily_loss_usd, config.STOP_LOSS_PCT * 100, new_size, mid,
+            )
     except Exception as exc:
         logger.warning("refresh_order_size failed: %s — keeping %.4f BTC", exc, state.order_size_btc)
 
@@ -243,10 +249,10 @@ async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
                     )
                     await executor.emergency_close("stop_loss")
 
-        if state.daily_pnl_usd <= -config.MAX_DAILY_LOSS_USD:
+        if state.daily_pnl_usd <= -state.max_daily_loss_usd:
             logger.critical(
                 "CIRCUIT BREAKER | daily_pnl=%.2f$ <= -%.2f$",
-                state.daily_pnl_usd, config.MAX_DAILY_LOSS_USD,
+                state.daily_pnl_usd, state.max_daily_loss_usd,
             )
             state.set_circuit_breaker()
             await executor.cancel_all_orders()

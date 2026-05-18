@@ -133,6 +133,8 @@ class BotState:
     order_size_btc: float = field(default_factory=lambda: config.ORDER_SIZE_BTC)
     # Inventory limit tracks order_size_btc: pauses quoting when |inventory| >= this.
     max_inventory_btc: float = field(default_factory=lambda: config.MAX_INVENTORY_BTC)
+    # Circuit breaker threshold: 2 stop-losses worth, scales with position size.
+    max_daily_loss_usd: float = field(default_factory=lambda: config.MAX_DAILY_LOSS_USD)
 
     # --- Bot lifecycle ---
     status: BotStatus = BotStatus.INITIALIZING
