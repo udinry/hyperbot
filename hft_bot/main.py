@@ -219,36 +219,91 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
         logger.warning("refresh_order_size failed: %s — keeping %.4f BTC", exc, state.order_size_btc)
 
 
+def _fetch_exchange_position() -> Optional[dict]:
+    """Direct REST call — returns position dict or None. Does NOT use SDK (SDK user_state
+    was observed to return empty assetPositions despite a live position existing)."""
+    import urllib.request as _ur, json as _json
+    payload = _json.dumps({
+        "type": "clearinghouseState",
+        "user": _wallet.address if _wallet else "",
+    }).encode()
+    req = _ur.Request(
+        config.API_URL.rstrip("/") + "/info",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with _ur.urlopen(req, timeout=5) as resp:
+        data = _json.loads(resp.read())
+    for ap in data.get("assetPositions", []):
+        pos = ap.get("position", {})
+        if pos.get("coin") == config.COIN:
+            szi = float(pos.get("szi", 0))
+            if abs(szi) > 1e-8:
+                return {
+                    "szi":      szi,
+                    "entry_px": float(pos["entryPx"]) if pos.get("entryPx") else None,
+                    "unreal":   float(pos.get("unrealizedPnl", 0)),
+                }
+    return None
+
+
 async def _reconcile_position(
-    state: BotState, info, wallet_address: str, executor: "OrderExecutor"
+    state: BotState, executor: "OrderExecutor"
 ) -> None:
-    """On startup, sync bot inventory with any existing exchange position and arm SL."""
+    """On startup, sync bot inventory with any existing exchange position and arm SL.
+    Uses direct REST (not SDK) to avoid SDK assetPositions bug."""
     loop = asyncio.get_running_loop()
     try:
-        data = await loop.run_in_executor(None, info.user_state, wallet_address)
-        positions = data.get("assetPositions", [])
-        logger.info("Startup reconcile | found %d assetPositions", len(positions))
-        for ap in positions:
-            pos = ap.get("position", {})
-            coin = pos.get("coin", "")
-            szi_raw = pos.get("szi", "0")
-            szi = float(szi_raw)
-            logger.info("Startup reconcile | coin=%s szi=%s", coin, szi_raw)
-            if coin == config.COIN and abs(szi) > 1e-8:
-                entry_px = float(pos["entryPx"]) if pos.get("entryPx") else None
-                state.inventory_btc = szi
-                state.entry_price   = entry_px
-                logger.info(
-                    "Startup reconcile | synced position %.4f BTC @ entry %.2f",
-                    szi, entry_px or 0,
+        pos = await loop.run_in_executor(None, _fetch_exchange_position)
+        if pos:
+            state.inventory_btc = pos["szi"]
+            state.entry_price   = pos["entry_px"]
+            logger.info(
+                "Startup reconcile | synced %.4f BTC @ entry %.2f (unrealPnL=%.2f$)",
+                pos["szi"], pos["entry_px"] or 0, pos["unreal"],
+            )
+            if pos["entry_px"]:
+                sl_oid = await executor.place_stop_loss(
+                    abs(pos["szi"]), pos["entry_px"], pos["szi"] > 0
                 )
-                if entry_px:
-                    sl_oid = await executor.place_stop_loss(abs(szi), entry_px, szi > 0)
-                    state.sl_oid = sl_oid
-                return
-        logger.info("Startup reconcile | no open %s position", config.COIN)
+                state.sl_oid = sl_oid
+        else:
+            logger.info("Startup reconcile | no open %s position", config.COIN)
     except Exception as exc:
         logger.warning("Position reconciliation failed: %s", exc)
+
+
+async def exchange_sync(state: BotState, executor: "OrderExecutor") -> None:
+    """Every 30s: sync inventory from exchange to catch any fills missed via WS.
+    If exchange shows a position the bot doesn't know about, update state and arm SL.
+    If exchange shows no position but bot thinks it has one, clear bot state."""
+    while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+        await asyncio.sleep(30)
+        if config.OBSERVER_MODE or not _wallet:
+            continue
+        loop = asyncio.get_running_loop()
+        try:
+            pos = await loop.run_in_executor(None, _fetch_exchange_position)
+            ex_inv = pos["szi"] if pos else 0.0
+            if abs(ex_inv - state.inventory_btc) > 1e-6:
+                logger.warning(
+                    "Exchange sync mismatch | bot=%.4f BTC, exchange=%.4f BTC — syncing",
+                    state.inventory_btc, ex_inv,
+                )
+                state.inventory_btc = ex_inv
+                state.entry_price   = pos["entry_px"] if pos else None
+                # Re-arm SL for the real position
+                await executor._manage_stop_loss()
+                # Pause trading if we're at or over the inventory limit
+                if abs(ex_inv) >= state.max_inventory_btc and state.is_running():
+                    state.set_paused_inventory()
+                    logger.warning(
+                        "Exchange sync: inventory %.4f BTC at limit — pausing", ex_inv
+                    )
+        except Exception as exc:
+            logger.debug("Exchange sync failed: %s", exc)
+    logger.info("Exchange sync exiting")
 
 
 async def position_sizer(state: BotState, info, wallet_address: str) -> None:
@@ -445,6 +500,18 @@ def _install_signal_handlers(state: BotState, executor: OrderExecutor, loop: asy
         logger.warning("Shutdown signal received — cancelling orders and closing positions")
         state.set_stopped()
         await executor.cancel_all_orders()
+        # Always verify against exchange — bot state may be stale after restarts.
+        if not config.OBSERVER_MODE and _wallet:
+            try:
+                pos = await loop.run_in_executor(None, _fetch_exchange_position)
+                if pos:
+                    state.inventory_btc = pos["szi"]
+                    logger.warning(
+                        "Shutdown: exchange shows %.4f BTC open — closing at market",
+                        pos["szi"],
+                    )
+            except Exception as exc:
+                logger.error("Shutdown position fetch failed: %s", exc)
         if state.inventory_btc != 0.0:
             await executor.emergency_close("graceful_shutdown")
 
@@ -474,7 +541,7 @@ async def run() -> None:
     _info_rest = Info(base_url=config.API_URL, skip_ws=True)
     if not config.OBSERVER_MODE and _wallet:
         await _refresh_order_size(state, _info_rest, _wallet.address)
-        await _reconcile_position(state, _info_rest, _wallet.address, executor)
+        await _reconcile_position(state, executor)
     logger.info("Order size: %.4f BTC", state.order_size_btc)
 
     ws_mgr = WSManager(queue, loop)
@@ -509,6 +576,7 @@ async def run() -> None:
         loop.create_task(risk_monitor(state, executor),              name="risk_monitor"),
         loop.create_task(ws_health_monitor(ws_manager_holder, queue, loop, state), name="ws_health"),
         loop.create_task(stats_logger(state),                        name="stats_logger"),
+        loop.create_task(exchange_sync(state, executor),             name="exchange_sync"),
     ]
     if sizer_task:
         tasks.append(sizer_task)
