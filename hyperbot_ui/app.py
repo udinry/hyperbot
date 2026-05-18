@@ -16,16 +16,11 @@ BOT_LOG = Path("/opt/hyperbot/hft_bot/bot.log")
 
 app = Flask(__name__)
 
-_FILL_RE = re.compile(
-    r"(\d{2}:\d{2}:\d{2})\.\d+ \[INFO\] executor \| FILL \| "
-    r"oid=(\d+) side=(\w+) px=([\d.]+) sz=([\d.]+) closedPnl=([+\-\d.]+)\$"
-)
 _STATE_RE = re.compile(
     r"(\d{2}:\d{2}:\d{2})\.\d+ \[INFO\] main \| STATE \| "
     r"status=(\w+) inv=([+\-\d.]+)BTC entry=([\d.]+) mid=([\d.]+|N/A) "
     r"unrealPnL=([+\-\d.]+)\$ realPnL=([+\-\d.]+)\$ fills=(\d+) open_orders=(\d+)"
 )
-_LIVE_RE = re.compile(r"\[INFO\] main \| Bot is LIVE")
 
 
 def _svc_status() -> str:
@@ -39,42 +34,49 @@ def _svc_status() -> str:
         return "unknown"
 
 
-def _parse_log():
+def _hl_post(payload: dict) -> dict:
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        HL_API_URL, data=data,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return json.loads(resp.read())
+
+
+def _fetch_exchange_fills() -> list:
+    """Pull all fills for the master account from Hyperliquid REST.
+    Returns newest-first list of fill dicts ready for the UI."""
+    raw = _hl_post({"type": "userFills", "user": WALLET_ADDRESS})
     fills = []
-    last_state = {}
-    pnl_series = []
     cum = 0.0
+    for f in raw:
+        if f.get("coin") != "BTC":
+            continue
+        cpnl = float(f.get("closedPnl", 0))
+        cum += cpnl
+        fills.append({
+            "time":       f.get("time", 0),
+            "oid":        int(f.get("oid", 0)),
+            "side":       "BUY" if f.get("side") == "B" else "SELL",
+            "price":      float(f.get("px", 0)),
+            "size":       float(f.get("sz", 0)),
+            "closed_pnl": round(cpnl, 4),
+            "cum_pnl":    round(cum, 4),
+        })
+    # API returns oldest-first; reverse so newest is at top
+    return list(reversed(fills))
+
+
+def _parse_log():
+    last_state = {}
 
     if not BOT_LOG.exists():
-        return fills, last_state, pnl_series
+        return last_state
 
     try:
         with open(BOT_LOG, "r", errors="replace") as fh:
             for line in fh:
-                # Reset per-session state at each bot startup so stale fills
-                # from previous sessions don't pollute the PnL display.
-                if _LIVE_RE.search(line):
-                    fills = []
-                    pnl_series = []
-                    cum = 0.0
-                    last_state = {}
-                    continue
-
-                m = _FILL_RE.search(line)
-                if m:
-                    ts, oid, side, px, sz, cpnl = m.groups()
-                    cum += float(cpnl)
-                    fills.append({
-                        "time": ts,
-                        "oid": int(oid),
-                        "side": side,
-                        "price": float(px),
-                        "size": float(sz),
-                        "closed_pnl": float(cpnl),
-                        "cum_pnl": round(cum, 4),
-                    })
-                    pnl_series.append({"t": ts, "v": round(cum, 4)})
-
                 m2 = _STATE_RE.search(line)
                 if m2:
                     ts, status, inv, entry, mid_s, unreal, real, fills_n, oo = m2.groups()
@@ -92,7 +94,7 @@ def _parse_log():
     except Exception:
         pass
 
-    return fills, last_state, pnl_series
+    return last_state
 
 
 @app.route("/hyperbot/")
@@ -103,19 +105,26 @@ def index():
 
 @app.route("/hyperbot/api/status")
 def api_status():
-    _, last_state, _ = _parse_log()
+    last_state = _parse_log()
     return jsonify({"service": _svc_status(), "state": last_state})
 
 
 @app.route("/hyperbot/api/trades")
 def api_trades():
-    fills, _, _ = _parse_log()
-    return jsonify({"trades": list(reversed(fills[-500:]))})
+    try:
+        fills = _fetch_exchange_fills()
+    except Exception as e:
+        return jsonify({"error": str(e), "trades": []}), 500
+    return jsonify({"trades": fills[:500], "total": len(fills)})
 
 
 @app.route("/hyperbot/api/pnl")
 def api_pnl():
-    _, _, series = _parse_log()
+    try:
+        fills = _fetch_exchange_fills()
+    except Exception as e:
+        return jsonify({"error": str(e), "series": []}), 500
+    series = [{"t": f["time"], "v": f["cum_pnl"]} for f in reversed(fills)]
     return jsonify({"series": series})
 
 
