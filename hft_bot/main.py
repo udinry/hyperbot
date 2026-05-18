@@ -515,6 +515,10 @@ def _install_signal_handlers(state: BotState, executor: OrderExecutor, loop: asy
         logger.warning("Shutdown signal received — cancelling orders and closing positions")
         state.set_stopped()
         await executor.cancel_all_orders()
+        # Cancel exchange-side SL immediately — don't wait for exchange_sync.
+        if state.sl_oid is not None:
+            await executor._cancel_sl(state.sl_oid)
+            state.sl_oid = None
         # Always verify against exchange — bot state may be stale after restarts.
         if not config.OBSERVER_MODE and _wallet:
             try:

@@ -173,6 +173,10 @@ class OrderExecutor:
 
         logger.warning("EMERGENCY CLOSE | reason=%s | pos=%.4f BTC", reason, pos)
         await self.cancel_all_orders()
+        # Cancel exchange SL before market-closing so it doesn't linger.
+        if self.state.sl_oid is not None:
+            await self._cancel_sl(self.state.sl_oid)
+            self.state.sl_oid = None
 
         if config.OBSERVER_MODE:
             self.state.inventory_btc = 0.0
