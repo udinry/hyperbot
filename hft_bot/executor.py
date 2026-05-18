@@ -221,8 +221,76 @@ class OrderExecutor:
             if order and order.cancel_task and not order.cancel_task.done():
                 order.cancel_task.cancel()
 
+            # Refresh exchange-side SL to reflect new position
+            self.loop.create_task(self._manage_stop_loss())
+
         except Exception as exc:
             logger.error("handle_fill error: %s | raw=%s", exc, fill, exc_info=True)
+
+    async def _manage_stop_loss(self) -> None:
+        """Cancel stale exchange SL and place a fresh one matching current position."""
+        if config.OBSERVER_MODE:
+            return
+        # Cancel previous SL (reduce_only auto-cancels on full close, but cancel anyway)
+        if self.state.sl_oid is not None:
+            await self._cancel_sl(self.state.sl_oid)
+            self.state.sl_oid = None
+
+        inv = self.state.inventory_btc
+        entry = self.state.entry_price
+        if abs(inv) < 1e-8 or entry is None:
+            return
+
+        sl_oid = await self.place_stop_loss(abs(inv), entry, is_long=inv > 0)
+        self.state.sl_oid = sl_oid
+
+    async def place_stop_loss(self, size: float, entry_price: float, is_long: bool) -> Optional[int]:
+        """Place a reduce-only stop-market order on the exchange."""
+        if config.OBSERVER_MODE:
+            return None
+
+        sl_pct = config.STOP_LOSS_PCT
+        trigger_px = _round_price(
+            entry_price * (1 - sl_pct) if is_long else entry_price * (1 + sl_pct)
+        )
+        is_buy_sl = not is_long
+        sz = _round_size(size)
+
+        logger.info(
+            "Placing exchange SL | %s %.4f BTC @ trigger $%.2f (%.2f%% from entry $%.2f)",
+            "SELL" if not is_buy_sl else "BUY", sz, trigger_px, sl_pct * 100, entry_price,
+        )
+
+        def _place():
+            return self.exchange.order(
+                config.COIN,
+                is_buy_sl,
+                sz,
+                trigger_px,
+                order_type={"trigger": {"triggerPx": trigger_px, "isMarket": True, "tpsl": "sl"}},
+                reduce_only=True,
+            )
+
+        try:
+            result = await self._run_in_executor(_place)
+            oid = self._extract_oid(result, "sl")
+            if oid:
+                logger.info("Exchange SL placed oid=%d trigger=%.2f", oid, trigger_px)
+            else:
+                logger.warning("SL placement: no oid in response | %s", result)
+            return oid
+        except Exception as exc:
+            logger.error("SL placement failed: %s", exc, exc_info=True)
+            return None
+
+    async def _cancel_sl(self, sl_oid: int) -> None:
+        def _cancel():
+            return self.exchange.cancel(config.COIN, sl_oid)
+        try:
+            await self._run_in_executor(_cancel)
+            logger.info("Exchange SL cancelled oid=%d", sl_oid)
+        except Exception as exc:
+            logger.warning("Cancel SL failed oid=%d: %s", sl_oid, exc)
 
     async def _auto_cancel(self, oid: int, timeout_ms: int) -> None:
         await asyncio.sleep(timeout_ms / 1000.0)

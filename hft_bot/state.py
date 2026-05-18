@@ -141,6 +141,9 @@ class BotState:
     last_signal_ms: int = 0
     ws_reconnect_count: int = 0
 
+    # --- Exchange-side stop-loss (oid of the resting SL trigger order) ---
+    sl_oid: Optional[int] = None
+
     # --- Statistics ---
     total_orders_placed: int = 0
     total_orders_filled: int = 0

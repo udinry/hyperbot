@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
+import urllib.request
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template
+
+WALLET_ADDRESS = "0x8d5BaFE283380554d3e669Ad2D6aa109Bf60458e"
+HL_API_URL = "https://api.hyperliquid.xyz/info"
 
 BOT_SERVICE = "hyperbot-bot"
 BOT_LOG = Path("/opt/hyperbot/hft_bot/bot.log")
@@ -114,6 +119,46 @@ def api_start():
 def api_stop():
     subprocess.run(["sudo", "systemctl", "stop", BOT_SERVICE], timeout=5)
     return jsonify({"ok": True})
+
+
+@app.route("/hyperbot/api/portfolio")
+def api_portfolio():
+    try:
+        payload = json.dumps({"type": "clearinghouseState", "user": WALLET_ADDRESS}).encode()
+        req = urllib.request.Request(
+            HL_API_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+
+        account_value = float(data["marginSummary"]["accountValue"])
+        withdrawable  = float(data.get("withdrawable", 0))
+
+        position = None
+        for ap in data.get("assetPositions", []):
+            pos = ap.get("position", {})
+            if pos.get("coin") == "BTC":
+                szi = float(pos.get("szi", 0))
+                if abs(szi) > 0:
+                    position = {
+                        "size":           szi,
+                        "entry_price":    float(pos["entryPx"]) if pos.get("entryPx") else None,
+                        "unrealized_pnl": float(pos.get("unrealizedPnl", 0)),
+                        "position_value": float(pos.get("positionValue", 0)),
+                        "liquidation_px": pos.get("liquidationPx"),
+                    }
+                break
+
+        return jsonify({
+            "account_value": round(account_value, 2),
+            "withdrawable":  round(withdrawable, 2),
+            "position":      position,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/hyperbot/api/log")

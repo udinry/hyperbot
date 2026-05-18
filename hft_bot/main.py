@@ -215,14 +215,36 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
             )
             state.order_size_btc    = new_size
             state.max_inventory_btc = new_size  # inventory limit tracks order size
-            # Circuit breaker = 2 stop-losses: always fires after 2 worst-case trades.
-            state.max_daily_loss_usd = round(2 * config.STOP_LOSS_PCT * new_size * mid, 2)
-            logger.info(
-                "Circuit breaker set to $%.2f (2 × %.1f%% SL × %.4f BTC × $%.0f)",
-                state.max_daily_loss_usd, config.STOP_LOSS_PCT * 100, new_size, mid,
-            )
     except Exception as exc:
         logger.warning("refresh_order_size failed: %s — keeping %.4f BTC", exc, state.order_size_btc)
+
+
+async def _reconcile_position(
+    state: BotState, info, wallet_address: str, executor: "OrderExecutor"
+) -> None:
+    """On startup, sync bot inventory with any existing exchange position and arm SL."""
+    loop = asyncio.get_running_loop()
+    try:
+        data = await loop.run_in_executor(None, info.user_state, wallet_address)
+        for ap in data.get("assetPositions", []):
+            pos = ap.get("position", {})
+            if pos.get("coin") == config.COIN:
+                szi = float(pos.get("szi", 0))
+                if abs(szi) > 1e-8:
+                    entry_px = float(pos["entryPx"]) if pos.get("entryPx") else None
+                    state.inventory_btc = szi
+                    state.entry_price   = entry_px
+                    logger.info(
+                        "Startup reconcile | existing position %.4f BTC @ entry %.2f",
+                        szi, entry_px or 0,
+                    )
+                    if entry_px:
+                        sl_oid = await executor.place_stop_loss(abs(szi), entry_px, szi > 0)
+                        state.sl_oid = sl_oid
+                    return
+        logger.info("Startup reconcile | no open %s position", config.COIN)
+    except Exception as exc:
+        logger.warning("Position reconciliation failed: %s", exc)
 
 
 async def position_sizer(state: BotState, info, wallet_address: str) -> None:
@@ -313,7 +335,7 @@ async def ws_health_monitor(
 
 async def stats_logger(state: BotState) -> None:
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
-        await asyncio.sleep(10)
+        await asyncio.sleep(2)
         logger.info("STATE | %s", state.summary())
 
 
@@ -443,6 +465,7 @@ async def run() -> None:
     _info_rest = Info(base_url=config.API_URL, skip_ws=True)
     if not config.OBSERVER_MODE and _wallet:
         await _refresh_order_size(state, _info_rest, _wallet.address)
+        await _reconcile_position(state, _info_rest, _wallet.address, executor)
     logger.info("Order size: %.4f BTC", state.order_size_btc)
 
     ws_mgr = WSManager(queue, loop)

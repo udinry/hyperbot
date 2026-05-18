@@ -87,12 +87,21 @@
   </div>
 
   <div class="stats">
+    <div class="stat"><div class="stat-label">Account Value</div><div class="stat-value neu" id="accountValue">—</div></div>
     <div class="stat"><div class="stat-label">Realized PnL</div><div class="stat-value" id="realPnl">—</div></div>
-    <div class="stat"><div class="stat-label">Unrealized PnL</div><div class="stat-value" id="unrealPnl">—</div></div>
     <div class="stat"><div class="stat-label">Total Fills</div><div class="stat-value neu" id="totalFills">—</div></div>
-    <div class="stat"><div class="stat-label">Inventory</div><div class="stat-value neu" id="inventory">—</div></div>
     <div class="stat"><div class="stat-label">Mid Price</div><div class="stat-value neu" id="midPrice">—</div></div>
     <div class="stat"><div class="stat-label">Open Orders</div><div class="stat-value neu" id="openOrders">—</div></div>
+  </div>
+
+  <div class="panel" id="positionPanel" style="display:none">
+    <div class="phdr"><h2>Live Position (Exchange)</h2><span id="posTs"></span></div>
+    <div class="pbody" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <div class="stat"><div class="stat-label">Size</div><div class="stat-value" id="posSize">—</div></div>
+      <div class="stat"><div class="stat-label">Entry Price</div><div class="stat-value neu" id="posEntry">—</div></div>
+      <div class="stat"><div class="stat-label">Unrealized PnL</div><div class="stat-value" id="posUnreal">—</div></div>
+      <div class="stat"><div class="stat-label">Liq. Price</div><div class="stat-value neg" id="posLiq">—</div></div>
+    </div>
   </div>
 
   <div class="panel">
@@ -113,7 +122,7 @@
     <div class="pbody"><div class="log-box" id="logBox">Loading...</div></div>
   </div>
 
-  <p class="footer">Auto-refreshes every 15s &nbsp;|&nbsp; Last update: <span id="lastTs">—</span></p>
+  <p class="footer">Auto-refreshes every 5s &nbsp;|&nbsp; Last update: <span id="lastTs">—</span></p>
 </div>
 
 <script>
@@ -148,9 +157,7 @@ function initChart() {
   });
 }
 
-function pnlClass(v) {
-  return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu';
-}
+function pnlClass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
 function pnlFmt(v, decimals = 4) {
   const sign = v > 0 ? '+' : '';
   return `<span class="${pnlClass(v)}">${sign}${v.toFixed(decimals)}</span>`;
@@ -168,26 +175,39 @@ async function loadStatus() {
     badge.className = 'badge b-' + (svc === 'active' ? 'active' : svc === 'inactive' ? 'inactive' : svc === 'failed' ? 'failed' : svc === 'activating' ? 'activating' : 'unknown');
 
     document.getElementById('botState').textContent = st.status ? `bot: ${st.status}` : '';
-
-    document.getElementById('realPnl').innerHTML   = st.realized_pnl   != null ? pnlFmt(st.realized_pnl)   + ' $' : '—';
-    document.getElementById('unrealPnl').innerHTML = st.unrealized_pnl  != null ? pnlFmt(st.unrealized_pnl) + ' $' : '—';
-    document.getElementById('totalFills').textContent  = st.fills       != null ? st.fills       : '—';
-    document.getElementById('openOrders').textContent  = st.open_orders != null ? st.open_orders : '—';
-
-    if (st.inventory != null) {
-      const inv = st.inventory;
-      const sign = inv >= 0 ? '+' : '';
-      document.getElementById('inventory').textContent = sign + inv.toFixed(4) + ' BTC';
-      document.getElementById('inventory').className = 'stat-value ' + (inv !== 0 ? (inv > 0 ? 'pos' : 'neg') : 'neu');
-    }
-
-    if (st.mid != null) {
+    document.getElementById('realPnl').innerHTML  = st.realized_pnl != null ? pnlFmt(st.realized_pnl) + ' $' : '—';
+    document.getElementById('totalFills').textContent = st.fills       != null ? st.fills       : '—';
+    document.getElementById('openOrders').textContent = st.open_orders != null ? st.open_orders : '—';
+    if (st.mid != null)
       document.getElementById('midPrice').textContent = '$' + st.mid.toLocaleString(undefined, { minimumFractionDigits: 2 });
-    }
 
     document.getElementById('btnStart').disabled = svc === 'active' || svc === 'activating';
     document.getElementById('btnStop').disabled  = svc !== 'active';
   } catch (e) { console.error('status:', e); }
+}
+
+async function loadPortfolio() {
+  try {
+    const r = await fetch('/hyperbot/api/portfolio');
+    const d = await r.json();
+    if (d.error) return;
+
+    document.getElementById('accountValue').textContent = '$' + d.account_value.toLocaleString(undefined, { minimumFractionDigits: 2 });
+
+    const panel = document.getElementById('positionPanel');
+    const pos = d.position;
+    if (pos && Math.abs(pos.size) > 0) {
+      panel.style.display = '';
+      const sign = pos.size > 0 ? '+' : '';
+      document.getElementById('posSize').innerHTML   = `<span class="${pos.size > 0 ? 'pos' : 'neg'}">${sign}${pos.size.toFixed(4)} BTC</span>`;
+      document.getElementById('posEntry').textContent = pos.entry_price ? '$' + pos.entry_price.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—';
+      document.getElementById('posUnreal').innerHTML  = pnlFmt(pos.unrealized_pnl) + ' $';
+      document.getElementById('posLiq').textContent   = pos.liquidation_px ? '$' + parseFloat(pos.liquidation_px).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—';
+      document.getElementById('posTs').textContent    = 'live from exchange';
+    } else {
+      panel.style.display = 'none';
+    }
+  } catch (e) { console.error('portfolio:', e); }
 }
 
 async function loadTrades() {
@@ -234,6 +254,10 @@ async function loadLog() {
     const r = await fetch('/hyperbot/api/log');
     const d = await r.json();
     const box = document.getElementById('logBox');
+    const atBottom = box.scrollHeight - box.scrollTop <= box.clientHeight + 5;
+    const prevTop = box.scrollTop;
+    const prevHeight = box.scrollHeight;
+
     const lines = d.lines || [];
     if (!lines.length) { box.textContent = 'No log output yet.'; return; }
     box.innerHTML = lines.map(l => {
@@ -243,7 +267,12 @@ async function loadLog() {
       if (/\[INFO\]/.test(esc))             return `<span class="l-info">${esc}</span>`;
       return esc;
     }).join('\n');
-    box.scrollTop = box.scrollHeight;
+
+    if (atBottom) {
+      box.scrollTop = box.scrollHeight;
+    } else {
+      box.scrollTop = prevTop + (box.scrollHeight - prevHeight);
+    }
   } catch (e) { console.error('log:', e); }
 }
 
@@ -261,13 +290,13 @@ async function stopBot() {
 
 async function refresh() {
   document.getElementById('lastTs').textContent = new Date().toLocaleTimeString();
-  await Promise.all([loadStatus(), loadTrades(), loadPnl()]);
+  await Promise.all([loadStatus(), loadTrades(), loadPnl(), loadPortfolio()]);
 }
 
 initChart();
 refresh();
 loadLog();
-setInterval(refresh, 15000);
+setInterval(refresh, 5000);
 setInterval(loadLog, 1000);
 </script>
 </body>
