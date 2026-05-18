@@ -55,7 +55,7 @@ hyperbot/
 
 | Parameter | Value | Notes |
 |---|---|---|
-| `ORDER_SIZE_BTC` | 0.01 | $770 notional at ~$77k BTC |
+| `ORDER_SIZE_BTC` | 0.01 | Starting default; overridden at runtime by dynamic sizing |
 | `OFI_BUY_THRESHOLD` | 0.70 | normalised OFI in [−1,+1] |
 | `OFI_SELL_THRESHOLD` | −0.70 | |
 | `OFI_LEVELS` | 2 | top N book levels |
@@ -64,6 +64,7 @@ hyperbot/
 | `SIGNAL_COOLDOWN_MS` | 1500 | min ms between signals |
 | `MIN_TFI_STRENGTH` | 0.10 | min |TFI| for confirmation |
 | `PRICE_TREND_WINDOW_MS` | 3000 | look-back for trend gate |
+| `POSITION_RISK_PCT` | 0.48 | fraction of balance used as margin per trade for dynamic sizing |
 | `WIDE_SPREAD_BPS` | 5.0 | switch IOC above this spread |
 | `LIMIT_ORDER_TIMEOUT_MS` | 800 | ALO auto-cancel after this long |
 | `PRICE_TICK` | 0.1 | $0.10 tick size on HL BTC perp |
