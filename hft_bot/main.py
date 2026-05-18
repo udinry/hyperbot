@@ -1,44 +1,40 @@
 """
-Main entry-point for the OFI HFT bot.
+Main entry-point for the OFI+TFI HFT bot.
 
 Architecture
 ------------
-                            ┌─────────────────────┐
-  Hyperliquid WS ──────────▶│  WebSocket Thread   │
-  (l2Book, trades,          │  (SDK WebsocketMgr) │
-   userFills,               └────────┬────────────┘
-   orderUpdates)                     │ call_soon_threadsafe
-                                     ▼
-                            ┌─────────────────────┐
-                            │  asyncio Queue      │
-                            └────────┬────────────┘
-                                     │ await queue.get()
-                                     ▼
-                            ┌─────────────────────┐
-                            │  Main async loop     │
-                            │  • process_book()    │
-                            │  • compute OFI       │
-                            │  • evaluate signal   │
-                            │  • place/cancel ordr │
-                            └────────┬────────────┘
-                                     │ run_in_executor
-                                     ▼
-                            ┌─────────────────────┐
-                            │  ThreadPoolExecutor │
-                            │  (blocking HTTP)     │
-                            └─────────────────────┘
+                            +---------------------+
+  Hyperliquid WS --------->|  WebSocket Thread   |
+  (l2Book, trades,         |  (SDK WebsocketMgr) |
+   userFills,              +--------+------------+
+   orderUpdates)                    | call_soon_threadsafe
+                                    v
+                            +---------------------+
+                            |  asyncio Queue      |
+                            +--------+------------+
+                                     | await queue.get()
+                                     v
+                            +---------------------+
+                            |  Main async loop    |
+                            |  process_book()     |
+                            |  ingest_trade()     |
+                            |  compute OFI+TFI    |
+                            |  evaluate signal    |
+                            |  place/cancel order |
+                            +--------+------------+
+                                     | run_in_executor
+                                     v
+                            +---------------------+
+                            |  ThreadPoolExecutor |
+                            |  (blocking HTTP)    |
+                            +---------------------+
 
-Reconnection
-------------
-If the WS thread dies (e.g. network drop) the main loop detects it via a
-periodic health-check and re-initialises the Info client and subscriptions.
-
-Risk checks
------------
-A separate asyncio task runs every 100ms checking:
-  - Stop-loss on current position
-  - Max daily-loss circuit breaker
-  - Inventory limit → pause/resume quoting
+Key improvements over v1
+-------------------------
+- Trades WebSocket subscribed for TFI signal confirmation
+- IOC execution when spread > WIDE_SPREAD_BPS (fills guaranteed on wide books)
+- 800ms cooldown + anti-flap gate (v1 had 200ms causing 30 oscillating signals)
+- Spread-adaptive limit pricing (IOC at ask/bid, ALO at best bid/ask)
 """
 from __future__ import annotations
 
@@ -53,27 +49,21 @@ from typing import Optional
 
 import config
 
-# Validate config first; will SystemExit if something is wrong.
 config.validate()
 
-# ---------------------------------------------------------------------------
-# Logging setup
-# ---------------------------------------------------------------------------
 
 def _setup_logging() -> None:
     fmt = logging.Formatter(
-        "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s │ %(message)s",
+        "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s | %(message)s",
         datefmt="%H:%M:%S",
     )
     root = logging.getLogger()
     root.setLevel(getattr(logging, config.LOG_LEVEL, logging.INFO))
 
-    # Console handler
     ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
     root.addHandler(ch)
 
-    # Rotating file handler
     try:
         fh = logging.handlers.RotatingFileHandler(
             config.LOG_FILE, maxBytes=10 * 1024 * 1024, backupCount=5
@@ -87,19 +77,13 @@ def _setup_logging() -> None:
 _setup_logging()
 logger = logging.getLogger("main")
 
-# ---------------------------------------------------------------------------
-# Hyperliquid SDK imports (after logging so warnings from SDK are captured)
-# ---------------------------------------------------------------------------
 from hyperliquid.info import Info
 from hyperliquid.utils.constants import MAINNET_API_URL, TESTNET_API_URL
 
 from executor import OrderExecutor
 from state import BotState, BotStatus, Level, OrderBook
-from strategy import evaluate_signal, process_book_update
+from strategy import evaluate_signal, ingest_trade, process_book_update
 
-# ---------------------------------------------------------------------------
-# Optional: Exchange import (skipped in observer mode)
-# ---------------------------------------------------------------------------
 _exchange = None
 if not config.OBSERVER_MODE:
     from eth_account import Account
@@ -107,33 +91,19 @@ if not config.OBSERVER_MODE:
 
     _wallet = Account.from_key(config.PRIVATE_KEY)
     logger.info("Wallet address: %s", _wallet.address)
-    _exchange = Exchange(
-        wallet=_wallet,
-        base_url=config.API_URL,
-    )
+    _exchange = Exchange(wallet=_wallet, base_url=config.API_URL)
     logger.info("Exchange initialised on %s", config.API_URL)
 else:
     logger.warning("OBSERVER MODE — no orders will be placed")
     _wallet = None
 
-# ---------------------------------------------------------------------------
-# Event queue: bridge between WS thread and asyncio event loop
-# ---------------------------------------------------------------------------
-_MSG_BOOK = "book"
-_MSG_FILLS = "fills"
+_MSG_BOOK   = "book"
+_MSG_FILLS  = "fills"
 _MSG_ORDERS = "orders"
+_MSG_TRADE  = "trade"
 
-
-# ---------------------------------------------------------------------------
-# WebSocket subscription management
-# ---------------------------------------------------------------------------
 
 class WSManager:
-    """
-    Wraps the Hyperliquid Info client and its subscriptions.
-    Re-created on each reconnect attempt.
-    """
-
     def __init__(self, queue: asyncio.Queue, loop: asyncio.AbstractEventLoop) -> None:
         self.queue = queue
         self.loop = loop
@@ -144,14 +114,18 @@ class WSManager:
         self._info = Info(base_url=config.API_URL, skip_ws=False)
         logger.info("Info client connected to %s", config.API_URL)
 
-        # Subscribe to L2 order book
         sid1 = self._info.subscribe(
             {"type": "l2Book", "coin": config.COIN},
             self._on_book,
         )
         self._sub_ids.append(sid1)
 
-        # Subscribe to user fills (for fill confirmation & PnL tracking)
+        sid_trades = self._info.subscribe(
+            {"type": "trades", "coin": config.COIN},
+            self._on_trades,
+        )
+        self._sub_ids.append(sid_trades)
+
         if not config.OBSERVER_MODE and _wallet:
             sid2 = self._info.subscribe(
                 {"type": "userFills", "user": _wallet.address},
@@ -182,18 +156,12 @@ class WSManager:
         mgr = getattr(self._info, "ws_manager", None)
         return mgr is not None and mgr.is_alive()
 
-    # ------------------------------------------------------------------
-    # WS callbacks (called from the SDK's WebSocket thread)
-    # ------------------------------------------------------------------
-
     def _on_book(self, msg: dict) -> None:
-        """Received l2Book message → push to asyncio queue."""
         try:
-            data = msg["data"]
+            data   = msg["data"]
             levels = data["levels"]
-            ts_ms = int(data.get("time", time.time() * 1000))
-
-            book = OrderBook(
+            ts_ms  = int(data.get("time", time.time() * 1000))
+            book   = OrderBook(
                 bids=[Level.from_ws(l) for l in levels[0][: config.OFI_LEVELS + 3]],
                 asks=[Level.from_ws(l) for l in levels[1][: config.OFI_LEVELS + 3]],
                 timestamp_ms=ts_ms,
@@ -203,57 +171,47 @@ class WSManager:
             logger.error("_on_book parse error: %s | msg=%s", exc, msg)
 
     def _on_fills(self, msg: dict) -> None:
-        """Received userFills message → push each fill to asyncio queue."""
         try:
-            data = msg["data"]
-            fills = data.get("fills", [])
+            fills = msg["data"].get("fills", [])
             for fill in fills:
                 self.loop.call_soon_threadsafe(self.queue.put_nowait, (_MSG_FILLS, fill))
         except Exception as exc:
             logger.error("_on_fills parse error: %s | msg=%s", exc, msg)
 
     def _on_order_updates(self, msg: dict) -> None:
-        """Received orderUpdates message → push to asyncio queue."""
         try:
-            updates = msg.get("data", [])
-            for upd in updates:
+            for upd in msg.get("data", []):
                 self.loop.call_soon_threadsafe(self.queue.put_nowait, (_MSG_ORDERS, upd))
         except Exception as exc:
             logger.error("_on_order_updates parse error: %s | msg=%s", exc, msg)
 
+    def _on_trades(self, msg: dict) -> None:
+        try:
+            for t in msg.get("data", []):
+                self.loop.call_soon_threadsafe(self.queue.put_nowait, (_MSG_TRADE, t))
+        except Exception as exc:
+            logger.error("_on_trades parse error: %s | msg=%s", exc, msg)
 
-# ---------------------------------------------------------------------------
-# Risk monitor task
-# ---------------------------------------------------------------------------
 
 async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
-    """
-    Runs every 100ms.  Checks:
-      1. Stop-loss on current position
-      2. Max daily-loss circuit breaker
-      3. Inventory-delta limit → PAUSED / RUNNING transitions
-    """
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(0.1)
 
-        # 1. Stop-loss
         if state.inventory_btc != 0.0 and state.entry_price:
-            unrealised = state.unrealized_pnl_usd()
+            unrealised     = state.unrealized_pnl_usd()
             position_value = abs(state.inventory_btc) * state.entry_price
             if position_value > 0:
                 loss_pct = -unrealised / position_value
                 if loss_pct >= config.STOP_LOSS_PCT:
                     logger.warning(
-                        "STOP-LOSS triggered | loss=%.2f%% > %.2f%% | inv=%.4f BTC | entry=%.2f",
-                        loss_pct * 100, config.STOP_LOSS_PCT * 100,
-                        state.inventory_btc, state.entry_price,
+                        "STOP-LOSS triggered | loss=%.2f%% > %.2f%% | inv=%.4f BTC",
+                        loss_pct * 100, config.STOP_LOSS_PCT * 100, state.inventory_btc,
                     )
                     await executor.emergency_close("stop_loss")
 
-        # 2. Circuit breaker
         if state.daily_pnl_usd <= -config.MAX_DAILY_LOSS_USD:
             logger.critical(
-                "CIRCUIT BREAKER | daily_pnl=%.2f$ ≤ -%.2f$",
+                "CIRCUIT BREAKER | daily_pnl=%.2f$ <= -%.2f$",
                 state.daily_pnl_usd, config.MAX_DAILY_LOSS_USD,
             )
             state.set_circuit_breaker()
@@ -261,51 +219,33 @@ async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
             await executor.emergency_close("circuit_breaker")
             break
 
-        # 3. Inventory limit transitions
         if state.status == BotStatus.RUNNING:
-            long_limit = state.inventory_btc >= config.MAX_INVENTORY_BTC
-            short_limit = state.inventory_btc <= -config.MAX_INVENTORY_BTC
-            if long_limit or short_limit:
+            if (state.inventory_btc >= config.MAX_INVENTORY_BTC or
+                    state.inventory_btc <= -config.MAX_INVENTORY_BTC):
                 state.set_paused_inventory()
-                logger.warning(
-                    "INVENTORY LIMIT | inv=%.4f BTC | pausing", state.inventory_btc
-                )
+                logger.warning("INVENTORY LIMIT | inv=%.4f BTC | pausing", state.inventory_btc)
 
         elif state.status == BotStatus.PAUSED_INVENTORY:
-            # Resume when inventory pulls back to 80% of the limit.
-            resume_threshold = config.MAX_INVENTORY_BTC * 0.8
-            if abs(state.inventory_btc) <= resume_threshold:
+            if abs(state.inventory_btc) <= config.MAX_INVENTORY_BTC * 0.8:
                 state.set_running()
-                logger.info(
-                    "INVENTORY RESUMED | inv=%.4f BTC", state.inventory_btc
-                )
+                logger.info("INVENTORY RESUMED | inv=%.4f BTC", state.inventory_btc)
 
     logger.info("Risk monitor exiting (status=%s)", state.status.value)
 
 
-# ---------------------------------------------------------------------------
-# WS health monitor task
-# ---------------------------------------------------------------------------
-
 async def ws_health_monitor(
-    ws_manager_holder: list,   # mutable wrapper [WSManager]
+    ws_manager_holder: list,
     queue: asyncio.Queue,
     loop: asyncio.AbstractEventLoop,
     state: BotState,
 ) -> None:
-    """
-    Checks every 5 seconds whether the WS thread is still alive.
-    If dead, creates a new WSManager and re-subscribes.
-    """
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(5)
 
         ws_mgr = ws_manager_holder[0]
         if not ws_mgr.is_alive():
             if state.ws_reconnect_count >= config.WS_MAX_RECONNECTS:
-                logger.critical(
-                    "WS dead after %d reconnects — giving up", config.WS_MAX_RECONNECTS
-                )
+                logger.critical("WS dead after %d reconnects — giving up", config.WS_MAX_RECONNECTS)
                 state.set_stopped()
                 break
 
@@ -326,36 +266,22 @@ async def ws_health_monitor(
             except Exception as exc:
                 logger.error("WS reconnect failed: %s", exc, exc_info=True)
         else:
-            # Reset reconnect counter on healthy tick.
             state.ws_reconnect_count = 0
 
     logger.info("WS health monitor exiting")
 
 
-# ---------------------------------------------------------------------------
-# Stats logger task
-# ---------------------------------------------------------------------------
-
 async def stats_logger(state: BotState) -> None:
-    """Prints a periodic summary every 10 seconds."""
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(10)
         logger.info("STATE | %s", state.summary())
 
-
-# ---------------------------------------------------------------------------
-# Main event loop
-# ---------------------------------------------------------------------------
 
 async def main_loop(
     state: BotState,
     executor: OrderExecutor,
     queue: asyncio.Queue,
 ) -> None:
-    """
-    Core event loop: consumes messages from the asyncio queue and drives
-    strategy → execution.
-    """
     logger.info("Main event loop started")
 
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
@@ -367,13 +293,13 @@ async def main_loop(
 
         if msg_type == _MSG_BOOK:
             await _handle_book(state, executor, payload)
-
         elif msg_type == _MSG_FILLS:
             executor.handle_fill(payload)
             logger.debug("State after fill: %s", state.summary())
-
         elif msg_type == _MSG_ORDERS:
             _handle_order_update(state, payload)
+        elif msg_type == _MSG_TRADE:
+            ingest_trade(state, payload)
 
     logger.info("Main event loop exiting (status=%s)", state.status.value)
 
@@ -383,9 +309,7 @@ async def _handle_book(
     executor: OrderExecutor,
     book: OrderBook,
 ) -> None:
-    """Process one L2 book update: compute OFI and act on signal."""
     ofi = process_book_update(state, book)
-
     if ofi is None or not state.is_running():
         return
 
@@ -393,37 +317,33 @@ async def _handle_book(
     if signal is None:
         return
 
-    # Determine limit price.
+    spread     = book.spread() or 0.0
+    mid        = book.mid_price() or 0.0
+    spread_bps = (spread / mid * 10_000) if mid > 0 else 9999
+    use_ioc    = spread_bps > config.WIDE_SPREAD_BPS
+
     if signal == "buy":
-        # Bid at best ask - edge ticks to capture spread (maker pricing).
+        best_bid = book.best_bid()
         best_ask = book.best_ask()
         if best_ask is None:
-            logger.warning("No ask price available for BUY order")
             return
-        # Price inside the spread: bid just below the current best ask.
-        price = best_ask.price - (config.EDGE_TICKS * config.PRICE_TICK)
-        # But not above best bid (would cross immediately, violating ALO).
-        if book.best_bid():
-            price = min(price, book.best_bid().price)
-        await executor.place_limit_order(is_buy=True, price=price, size=config.ORDER_SIZE_BTC)
+        price = best_ask.price if use_ioc else (best_bid.price if best_bid else best_ask.price - config.PRICE_TICK)
+        await executor.place_limit_order(is_buy=True, price=price, size=config.ORDER_SIZE_BTC, spread=spread)
 
     elif signal == "sell":
         best_bid = book.best_bid()
+        best_ask = book.best_ask()
         if best_bid is None:
-            logger.warning("No bid price available for SELL order")
             return
-        price = best_bid.price + (config.EDGE_TICKS * config.PRICE_TICK)
-        if book.best_ask():
-            price = max(price, book.best_ask().price)
-        await executor.place_limit_order(is_buy=False, price=price, size=config.ORDER_SIZE_BTC)
+        price = best_bid.price if use_ioc else (best_ask.price if best_ask else best_bid.price + config.PRICE_TICK)
+        await executor.place_limit_order(is_buy=False, price=price, size=config.ORDER_SIZE_BTC, spread=spread)
 
 
 def _handle_order_update(state: BotState, update: dict) -> None:
-    """Process an orderUpdates event (cancel confirmations, etc.)."""
     try:
         order_data = update.get("order", {})
-        status = update.get("status", "")
-        oid = int(order_data.get("oid", 0))
+        status     = update.get("status", "")
+        oid        = int(order_data.get("oid", 0))
 
         if status in ("canceled", "rejected", "marginCanceled"):
             order = state.open_orders.pop(oid, None)
@@ -436,10 +356,6 @@ def _handle_order_update(state: BotState, update: dict) -> None:
     except Exception as exc:
         logger.error("_handle_order_update error: %s | data=%s", exc, update)
 
-
-# ---------------------------------------------------------------------------
-# Graceful shutdown
-# ---------------------------------------------------------------------------
 
 def _install_signal_handlers(state: BotState, executor: OrderExecutor, loop: asyncio.AbstractEventLoop) -> None:
     async def _shutdown():
@@ -456,33 +372,25 @@ def _install_signal_handlers(state: BotState, executor: OrderExecutor, loop: asy
         try:
             loop.add_signal_handler(sig, _handler)
         except NotImplementedError:
-            # Windows doesn't support add_signal_handler.
             pass
 
 
-# ---------------------------------------------------------------------------
-# Startup
-# ---------------------------------------------------------------------------
-
 async def run() -> None:
-    loop = asyncio.get_running_loop()
+    loop  = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue(maxsize=10_000)
 
-    state = BotState()
+    state    = BotState()
     executor = OrderExecutor(exchange=_exchange, state=state, loop=loop)
 
     _install_signal_handlers(state, executor, loop)
 
-    # Set leverage before subscribing.
     await executor.set_leverage()
 
-    # Start WebSocket subscriptions.
     ws_mgr = WSManager(queue, loop)
     ws_mgr.start()
     ws_manager_holder = [ws_mgr]
 
-    # Wait briefly for initial book snapshot to arrive before going live.
-    logger.info("Waiting for initial L2 book snapshot…")
+    logger.info("Waiting for initial L2 book snapshot...")
     deadline = time.monotonic() + 15
     while state.book.timestamp_ms == 0:
         if time.monotonic() > deadline:
@@ -500,12 +408,11 @@ async def run() -> None:
     state.set_running()
     logger.info("Bot is LIVE | %s", state.summary())
 
-    # Spawn background tasks.
     tasks = [
-        loop.create_task(main_loop(state, executor, queue), name="main_loop"),
-        loop.create_task(risk_monitor(state, executor), name="risk_monitor"),
+        loop.create_task(main_loop(state, executor, queue),          name="main_loop"),
+        loop.create_task(risk_monitor(state, executor),              name="risk_monitor"),
         loop.create_task(ws_health_monitor(ws_manager_holder, queue, loop, state), name="ws_health"),
-        loop.create_task(stats_logger(state), name="stats_logger"),
+        loop.create_task(stats_logger(state),                        name="stats_logger"),
     ]
 
     try:
@@ -519,12 +426,8 @@ async def run() -> None:
         logger.info("Final state: %s", state.summary())
         logger.info(
             "Session summary | orders=%d fills=%d cancelled=%d buys=%d sells=%d | realised_PnL=%.2f$",
-            state.total_orders_placed,
-            state.total_orders_filled,
-            state.total_orders_cancelled,
-            state.total_buys_filled,
-            state.total_sells_filled,
-            state.daily_pnl_usd,
+            state.total_orders_placed, state.total_orders_filled, state.total_orders_cancelled,
+            state.total_buys_filled, state.total_sells_filled, state.daily_pnl_usd,
         )
 
 

@@ -44,37 +44,62 @@ ORDER_SIZE_BTC: float = float(os.getenv("ORDER_SIZE_BTC", "0.001"))
 # ---------------------------------------------------------------------------
 # OFI strategy tuning
 # ---------------------------------------------------------------------------
-# Rolling window length in milliseconds over which OFI is accumulated.
-OFI_WINDOW_MS: int = int(os.getenv("OFI_WINDOW_MS", "500"))
+# Rolling window length in milliseconds over which OFI and TFI are accumulated.
+# 400ms: wider than 250ms (too few deltas per window on testnet tick ~570ms),
+# narrower than 500ms (avoids unnecessary lag on fast mainnet ticks ~20ms).
+OFI_WINDOW_MS: int = int(os.getenv("OFI_WINDOW_MS", "400"))
 
-# Normalised OFI thresholds in [-1, +1].  Stricter = fewer but higher-quality signals.
-OFI_BUY_THRESHOLD: float = float(os.getenv("OFI_BUY_THRESHOLD", "0.65"))
-OFI_SELL_THRESHOLD: float = float(os.getenv("OFI_SELL_THRESHOLD", "-0.65"))
+# Normalised OFI thresholds in [-1, +1].
+# Mainnet tuning: 0.70 generates ~10-15 signals/3 min on liquid BTC — enough
+# statistical sample while avoiding the lowest-conviction false triggers at 0.65.
+OFI_BUY_THRESHOLD: float = float(os.getenv("OFI_BUY_THRESHOLD", "0.70"))
+OFI_SELL_THRESHOLD: float = float(os.getenv("OFI_SELL_THRESHOLD", "-0.70"))
 
-# Number of top book levels fed into the OFI calculation (1 or 2 is typical).
+# Number of top book levels fed into the OFI calculation.
 OFI_LEVELS: int = int(os.getenv("OFI_LEVELS", "2"))
 
-# Minimum time between consecutive signals (ms) to suppress signal clustering.
-SIGNAL_COOLDOWN_MS: int = int(os.getenv("SIGNAL_COOLDOWN_MS", "200"))
+# Signal persistence: consecutive ticks that must exceed the OFI threshold.
+# Mainnet tick is ~20-50ms — require 2 consecutive ticks to filter single-tick spikes.
+OFI_PERSISTENCE_TICKS: int = int(os.getenv("OFI_PERSISTENCE_TICKS", "2"))
+
+# Minimum time between consecutive signals (ms).
+# 1500ms: T+1000ms is the profitable horizon on mainnet — spacing signals 1.5s apart
+# avoids chasing and keeps the 2x anti-flap guard meaningful.
+SIGNAL_COOLDOWN_MS: int = int(os.getenv("SIGNAL_COOLDOWN_MS", "1500"))
+
+# Minimum absolute TFI required for signal confirmation.
+# Requires trade flow to be at least 10% imbalanced — filters near-zero TFI (0.048)
+# that represent essentially random noise in the trade window.
+MIN_TFI_STRENGTH: float = float(os.getenv("MIN_TFI_STRENGTH", "0.10"))
+
+# Short-term price trend gate: look-back window in ms.
+# A BUY signal is suppressed if mid has been FALLING over this window;
+# a SELL signal is suppressed if mid has been RISING.
+# This prevents buying into a downtrend or selling into an uptrend.
+PRICE_TREND_WINDOW_MS: int = int(os.getenv("PRICE_TREND_WINDOW_MS", "3000"))
+
+# Maximum allowed spread in basis-points of mid-price before a signal is
+# suppressed.  On mainnet BTC the spread is 0.01-0.03 bps; set to 9999 to
+# disable and trade regardless of spread (needed on testnet).
+MAX_SPREAD_BPS: float = float(os.getenv("MAX_SPREAD_BPS", "9999"))
+
+# If spread > WIDE_SPREAD_BPS, use IOC (guaranteed fill) instead of ALO
+# (post-only, cheaper but may never fill on a wide-spread book).
+# On mainnet: 5 bps is approx $3.85 on $77k BTC.
+WIDE_SPREAD_BPS: float = float(os.getenv("WIDE_SPREAD_BPS", "5.0"))
 
 # ---------------------------------------------------------------------------
 # Order execution
 # ---------------------------------------------------------------------------
-# When True bot places ALO ("post-only") limit orders; when False it may cross.
-POST_ONLY: bool = os.getenv("POST_ONLY", "true").lower() == "true"
-
-# How long (ms) a resting limit order is allowed to live before auto-cancel.
-LIMIT_ORDER_TIMEOUT_MS: int = int(os.getenv("LIMIT_ORDER_TIMEOUT_MS", "1500"))
+# How long (ms) a resting ALO limit order is allowed to live before auto-cancel.
+# Reduced from 1500ms to 800ms: get out faster if the market has moved on.
+LIMIT_ORDER_TIMEOUT_MS: int = int(os.getenv("LIMIT_ORDER_TIMEOUT_MS", "800"))
 
 # Tick size for BTC on Hyperliquid perp (price precision).
 PRICE_TICK: float = float(os.getenv("PRICE_TICK", "0.1"))
 
 # Size decimal places for BTC on Hyperliquid perp.
 SIZE_DECIMALS: int = int(os.getenv("SIZE_DECIMALS", "3"))
-
-# How far inside the spread to price limit orders (in ticks).
-# 0 = at best bid/ask; positive = deeper into the book (safer fill rate).
-EDGE_TICKS: int = int(os.getenv("EDGE_TICKS", "0"))
 
 # ---------------------------------------------------------------------------
 # Risk limits — loaded from risk.yaml so ops can tune without code changes.
@@ -112,6 +137,7 @@ def validate() -> None:
     assert 0 < OFI_BUY_THRESHOLD <= 1, "OFI_BUY_THRESHOLD must be in (0, 1]"
     assert -1 <= OFI_SELL_THRESHOLD < 0, "OFI_SELL_THRESHOLD must be in [-1, 0)"
     assert LIMIT_ORDER_TIMEOUT_MS > 0
+    assert OFI_PERSISTENCE_TICKS >= 1
     assert MAX_INVENTORY_BTC > 0
     assert 0 < STOP_LOSS_PCT < 1
     assert MAX_DAILY_LOSS_USD > 0
