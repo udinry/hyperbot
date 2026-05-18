@@ -55,7 +55,8 @@ hyperbot/
 
 | Parameter | Value | Notes |
 |---|---|---|
-| `ORDER_SIZE_BTC` | 0.01 | Starting default; overridden at runtime by dynamic sizing |
+| `ORDER_SIZE_BTC` | 0.01 | Starting default; overridden at runtime by `_refresh_order_size` |
+| `POSITION_RISK_PCT` | 0.48 | fraction of balance used as margin → `size = balance×0.48×leverage/mid` |
 | `OFI_BUY_THRESHOLD` | 0.70 | normalised OFI in [−1,+1] |
 | `OFI_SELL_THRESHOLD` | −0.70 | |
 | `OFI_LEVELS` | 2 | top N book levels |
@@ -167,6 +168,8 @@ Concurrent tasks: `main_loop`, `risk_monitor` (100ms poll), `ws_health_monitor` 
 - 5-day backtest sample is small; need weeks of live paper trading to confirm 82.7% figure
 - Paper trader WS reconnects automatically after drop; main.py also has ws_health_monitor with exponential backoff
 - `_round_price` in executor.py uses Python banker's rounding — harmless in practice because all WS prices are already tick-aligned
+- Dynamic sizing: `state.order_size_btc` and `state.max_inventory_btc` are set together in `_refresh_order_size`; `can_buy`/`can_sell`/`risk_monitor` all read from state, not config — so the inventory gate scales automatically with position size
+- Sizing formula: `round(max(0.001, min(0.1, balance×POSITION_RISK_PCT×leverage/mid)), 3)` — 0.1 BTC is a sanity cap only, not a risk limit
 
 ---
 
