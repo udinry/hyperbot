@@ -143,14 +143,29 @@ ThreadPoolExecutor (blocking HTTP calls to HL REST API)
 
 Concurrent tasks: `main_loop`, `risk_monitor` (100ms poll), `ws_health_monitor` (5s poll), `stats_logger` (10s).
 
+### Pre-live test results (2026-05-18, mainnet paper trade)
+
+| Session | Duration | Signals | Fills | Fill rate | Net P&L | Wins/Losses |
+|---|---|---|---|---|---|---|
+| Session 1 | 15 min | 11 (11B/0S) | 2 | 18% | +$0.37 | 2/0 |
+| Session 2 | 10 min | 7 (6B/1S) | 2 | 29% | +$0.33 | 2/0 |
+
+- Low fill rate (18-29%) in strong uptrend is expected and correct — orders expire when market runs away (no cost, no loss)
+- SELL signal confirmed firing correctly when OFI=-1.000 and TFI=-0.545 (trend gate permitted it at trend=+0.00)
+- WS drop at 7 min recovered automatically; full session ran to completion
+
 ### Known issues / gotchas
 
 - `data.hyperliquid.xyz` DNS unavailable from cloud environments — use `api.hyperliquid.xyz` for candle data
 - `historicalTrades` REST endpoint unreliable; use `candleSnapshot` for backtest data
 - OFI threshold 0.80 + persistence 3 generates 0 signals on live data (too tight); 0.70 + 2 is the sweet spot
-- ALO fill rate ~25-39% (orders expire when market runs away in predicted direction — expected, no loss on expiry)
+- ALO fill rate ~18-29% in strong trends, up to ~39% in ranging markets — all expiries are free (no cost)
+- ALO limit price must be clamped: BUY limit must be < best_ask, SELL limit must be > best_bid — crossing causes silent rejection on Hyperliquid ALO (post-only rule). Fixed in main.py.
+- No SIGHUP hot-reload; risk.yaml changes require bot restart
 - Candle backtest OFI proxy uses (close−open)/(high−low) which is noisier than tick-level OFI; treat accuracy numbers as indicative, not exact
 - 5-day backtest sample is small; need weeks of live paper trading to confirm 82.7% figure
+- Paper trader WS reconnects automatically after drop; main.py also has ws_health_monitor with exponential backoff
+- `_round_price` in executor.py uses Python banker's rounding — harmless in practice because all WS prices are already tick-aligned
 
 ---
 
