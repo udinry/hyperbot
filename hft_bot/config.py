@@ -77,7 +77,7 @@ OFI_PERSISTENCE_TICKS: int = int(os.getenv("OFI_PERSISTENCE_TICKS", "2"))
 # Minimum time between consecutive signals (ms).
 # 1500ms: T+1000ms is the profitable horizon on mainnet — spacing signals 1.5s apart
 # avoids chasing and keeps the 2x anti-flap guard meaningful.
-SIGNAL_COOLDOWN_MS: int = int(os.getenv("SIGNAL_COOLDOWN_MS", "1500"))
+SIGNAL_COOLDOWN_MS: int = int(os.getenv("SIGNAL_COOLDOWN_MS", "1000"))
 
 # Minimum absolute TFI required for signal confirmation.
 # Requires trade flow to be at least 10% imbalanced — filters near-zero TFI (0.048)
@@ -88,7 +88,7 @@ MIN_TFI_STRENGTH: float = float(os.getenv("MIN_TFI_STRENGTH", "0.10"))
 # A BUY signal is suppressed if mid has been FALLING over this window;
 # a SELL signal is suppressed if mid has been RISING.
 # This prevents buying into a downtrend or selling into an uptrend.
-PRICE_TREND_WINDOW_MS: int = int(os.getenv("PRICE_TREND_WINDOW_MS", "3000"))
+PRICE_TREND_WINDOW_MS: int = int(os.getenv("PRICE_TREND_WINDOW_MS", "1500"))
 
 # Maximum allowed spread in basis-points of mid-price before a signal is
 # suppressed.  On mainnet BTC the spread is 0.01-0.03 bps; set to 9999 to
@@ -123,6 +123,20 @@ try:
         _risk: dict = yaml.safe_load(_fh)
 except FileNotFoundError:
     raise SystemExit(f"[config] Risk file not found: {_RISK_FILE}")
+
+# ---------------------------------------------------------------------------
+# Take-profit and exit-signal parameters
+# ---------------------------------------------------------------------------
+# ALO reduce-only limit placed immediately after fill opens a position.
+# 0.25% on $77k BTC = $192.50 notional move = $1.93 profit on 0.01 BTC (before rebate).
+TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "0.0025"))
+
+# OFI threshold for the simplified exit signal (lower than entry threshold).
+# When paused_inventory, fires a reduce-only IOC to close if OFI flips strongly.
+EXIT_OFI_THRESHOLD: float = float(os.getenv("EXIT_OFI_THRESHOLD", "0.55"))
+
+# Minimum ms between consecutive exit-signal evaluations.
+EXIT_COOLDOWN_MS: int = int(os.getenv("EXIT_COOLDOWN_MS", "500"))
 
 MAX_INVENTORY_BTC: float = float(_risk["max_inventory_btc"])
 STOP_LOSS_PCT: float = float(_risk["stop_loss_pct"])

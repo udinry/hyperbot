@@ -82,7 +82,7 @@ from hyperliquid.utils.constants import MAINNET_API_URL, TESTNET_API_URL
 
 from executor import OrderExecutor
 from state import BotState, BotStatus, Level, OrderBook
-from strategy import evaluate_signal, ingest_trade, process_book_update
+from strategy import evaluate_exit_signal, evaluate_signal, ingest_trade, process_book_update
 
 _exchange = None
 _account_address: str = ""   # master account address used for all reads
@@ -376,7 +376,7 @@ async def exchange_sync(state: BotState, executor: "OrderExecutor") -> None:
                 state.inventory_btc = ex_inv
                 state.entry_price   = pos["entry_px"] if pos else None
                 # Re-arm SL for the real position
-                await executor._manage_stop_loss()
+                await executor._manage_sl_tp()
                 # Resume only if within inventory limit
                 if was_running and abs(ex_inv) < state.max_inventory_btc:
                     state.set_running()
@@ -514,11 +514,7 @@ async def _handle_book(
     book: OrderBook,
 ) -> None:
     ofi = process_book_update(state, book)
-    if ofi is None or not state.is_running():
-        return
-
-    signal = evaluate_signal(state, ofi)
-    if signal is None:
+    if ofi is None:
         return
 
     spread     = book.spread() or 0.0
@@ -526,38 +522,60 @@ async def _handle_book(
     spread_bps = (spread / mid * 10_000) if mid > 0 else 9999
     use_ioc    = spread_bps > config.WIDE_SPREAD_BPS
 
-    # IOC slippage buffer: BTC HTTP RTT ~900ms; add 20 ticks ($20) so limit stays
-    # above the ask even if market moves before the order reaches the exchange.
-    # Actual fill price = best available ask, not this limit — no extra cost incurred.
+    # IOC slippage buffer: add 20 ticks so limit clears the book even after RTT.
     _IOC_SLIP = 20 * config.PRICE_TICK
 
-    if signal == "buy":
-        best_bid = book.best_bid()
-        best_ask = book.best_ask()
-        if best_ask is None:
-            return
-        if use_ioc:
-            price = best_ask.price + _IOC_SLIP
-        else:
-            # ALO: post 1 tick above best bid; clamp below ask to avoid crossing.
-            price = (best_bid.price + config.PRICE_TICK) if best_bid else (best_ask.price - config.PRICE_TICK)
-            if price >= best_ask.price:
-                price = best_ask.price - config.PRICE_TICK
-        await executor.place_limit_order(is_buy=True, price=price, size=state.order_size_btc, spread=spread)
+    # --- Entry signals (only when running with room to add) ---
+    if state.is_running():
+        signal = evaluate_signal(state, ofi)
+        if signal is not None:
+            if signal == "buy":
+                best_bid = book.best_bid()
+                best_ask = book.best_ask()
+                if best_ask is None:
+                    return
+                if use_ioc:
+                    price = best_ask.price + _IOC_SLIP
+                else:
+                    price = (best_bid.price + config.PRICE_TICK) if best_bid else (best_ask.price - config.PRICE_TICK)
+                    if price >= best_ask.price:
+                        price = best_ask.price - config.PRICE_TICK
+                await executor.place_limit_order(is_buy=True, price=price, size=state.order_size_btc, spread=spread)
 
-    elif signal == "sell":
-        best_bid = book.best_bid()
-        best_ask = book.best_ask()
-        if best_bid is None:
-            return
-        if use_ioc:
-            price = best_bid.price - _IOC_SLIP
-        else:
-            # ALO: post 1 tick below best ask; clamp above bid to avoid crossing.
-            price = (best_ask.price - config.PRICE_TICK) if best_ask else (best_bid.price + config.PRICE_TICK)
-            if price <= best_bid.price:
-                price = best_bid.price + config.PRICE_TICK
-        await executor.place_limit_order(is_buy=False, price=price, size=state.order_size_btc, spread=spread)
+            elif signal == "sell":
+                best_bid = book.best_bid()
+                best_ask = book.best_ask()
+                if best_bid is None:
+                    return
+                if use_ioc:
+                    price = best_bid.price - _IOC_SLIP
+                else:
+                    price = (best_ask.price - config.PRICE_TICK) if best_ask else (best_bid.price + config.PRICE_TICK)
+                    if price <= best_bid.price:
+                        price = best_bid.price + config.PRICE_TICK
+                await executor.place_limit_order(is_buy=False, price=price, size=state.order_size_btc, spread=spread)
+
+    # --- Exit signals (when holding a position, check OFI for early close) ---
+    elif state.status == BotStatus.PAUSED_INVENTORY:
+        exit_sig = evaluate_exit_signal(state, ofi)
+        if exit_sig is not None:
+            sz = abs(state.inventory_btc)
+            if exit_sig == "sell":  # close long — IOC reduce-only sell
+                best_bid = book.best_bid()
+                if best_bid is None:
+                    return
+                price = best_bid.price - _IOC_SLIP
+                await executor.place_limit_order(
+                    is_buy=False, price=price, size=sz, spread=spread, reduce_only=True
+                )
+            elif exit_sig == "buy":  # close short — IOC reduce-only buy
+                best_ask = book.best_ask()
+                if best_ask is None:
+                    return
+                price = best_ask.price + _IOC_SLIP
+                await executor.place_limit_order(
+                    is_buy=True, price=price, size=sz, spread=spread, reduce_only=True
+                )
 
 
 def _handle_order_update(state: BotState, update: dict) -> None:

@@ -141,8 +141,12 @@ class BotState:
     last_signal_ms: int = 0
     ws_reconnect_count: int = 0
 
-    # --- Exchange-side stop-loss (oid of the resting SL trigger order) ---
+    # --- Exchange-side stop-loss and take-profit resting orders ---
     sl_oid: Optional[int] = None
+    tp_oid: Optional[int] = None
+
+    # --- Exit signal cooldown (ms timestamp of last OFI-based exit) ---
+    last_exit_ms: int = 0
 
     # --- Statistics ---
     total_orders_placed: int = 0

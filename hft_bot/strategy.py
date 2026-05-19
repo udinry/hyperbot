@@ -330,3 +330,41 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
         logger.info("SELL signal | OFI=%+.4f TFI=%s spread=%.2f$", ofi, tfi_str, spread or 0)
 
     return candidate
+
+
+def evaluate_exit_signal(state: BotState, ofi: float) -> Optional[str]:
+    """
+    Simplified exit check used when holding a position (paused_inventory).
+    Lower OFI threshold, no trend gate, no anti-flap — just OFI+TFI agreement.
+    Returns 'sell' (close long) or 'buy' (close short), or None.
+    """
+    if abs(state.inventory_btc) < 1e-8:
+        return None
+
+    now_ms = _now_ms()
+    if now_ms - state.last_exit_ms < config.EXIT_COOLDOWN_MS:
+        return None
+
+    tfi = compute_tfi(state)
+    min_tfi = config.MIN_TFI_STRENGTH
+    threshold = config.EXIT_OFI_THRESHOLD
+
+    if state.inventory_btc > 0:  # long — need SELL to close
+        if ofi <= -threshold:
+            if tfi is not None and tfi > -min_tfi:
+                return None
+            state.last_exit_ms = now_ms
+            tfi_str = f"{tfi:+.3f}" if tfi is not None else "N/A"
+            logger.info("EXIT SELL | OFI=%+.4f TFI=%s (closing LONG %.4f BTC)", ofi, tfi_str, state.inventory_btc)
+            return "sell"
+
+    elif state.inventory_btc < 0:  # short — need BUY to close
+        if ofi >= threshold:
+            if tfi is not None and tfi < min_tfi:
+                return None
+            state.last_exit_ms = now_ms
+            tfi_str = f"{tfi:+.3f}" if tfi is not None else "N/A"
+            logger.info("EXIT BUY | OFI=%+.4f TFI=%s (closing SHORT %.4f BTC)", ofi, tfi_str, abs(state.inventory_btc))
+            return "buy"
+
+    return None

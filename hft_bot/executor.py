@@ -75,6 +75,7 @@ class OrderExecutor:
         price: float,
         size: float,
         spread: float = 0.0,
+        reduce_only: bool = False,
     ) -> Optional[int]:
         """
         Place a limit order with spread-adaptive TIF:
@@ -112,7 +113,7 @@ class OrderExecutor:
                 sz,
                 px,
                 order_type=order_type,
-                reduce_only=False,
+                reduce_only=reduce_only,
             )
 
         try:
@@ -181,10 +182,9 @@ class OrderExecutor:
 
         logger.warning("EMERGENCY CLOSE | reason=%s | pos=%.4f BTC", reason, pos)
         await self.cancel_all_orders()
-        # Cancel exchange SL before market-closing so it doesn't linger.
-        if self.state.sl_oid is not None:
-            await self._cancel_sl(self.state.sl_oid)
-            self.state.sl_oid = None
+        await self._cancel_all_reduce_only()
+        self.state.sl_oid = None
+        self.state.tp_oid = None
 
         if config.OBSERVER_MODE:
             self.state.inventory_btc = 0.0
@@ -233,8 +233,8 @@ class OrderExecutor:
             if order and order.cancel_task and not order.cancel_task.done():
                 order.cancel_task.cancel()
 
-            # Refresh exchange-side SL to reflect new position
-            self.loop.create_task(self._manage_stop_loss())
+            # Refresh SL + TP to reflect new position
+            self.loop.create_task(self._manage_sl_tp())
 
         except Exception as exc:
             logger.error("handle_fill error: %s | raw=%s", exc, fill, exc_info=True)
@@ -329,6 +329,65 @@ class OrderExecutor:
         except Exception as exc:
             logger.error("SL placement failed: %s", exc, exc_info=True)
             return None
+
+    async def place_take_profit(self, size: float, entry_price: float, is_long: bool) -> Optional[int]:
+        """Place a reduce-only ALO (post-only, earns maker rebate) take-profit limit order."""
+        if config.OBSERVER_MODE:
+            return None
+
+        tp_pct = config.TAKE_PROFIT_PCT
+        tp_px = _round_price(
+            entry_price * (1 + tp_pct) if is_long else entry_price * (1 - tp_pct)
+        )
+        is_buy_tp = not is_long
+        sz = _round_size(size)
+
+        logger.info(
+            "Placing TP | %s %.4f BTC @ $%.2f (%.2f%% from entry $%.2f)",
+            "SELL" if not is_buy_tp else "BUY", sz, tp_px, tp_pct * 100, entry_price,
+        )
+
+        def _place():
+            return self.exchange.order(
+                config.COIN,
+                is_buy_tp,
+                sz,
+                tp_px,
+                order_type={"limit": {"tif": "Alo"}},
+                reduce_only=True,
+            )
+
+        try:
+            result = await self._run_in_executor(_place)
+            oid = self._extract_oid(result, "tp")
+            if oid:
+                logger.info("TP placed oid=%d @ $%.2f", oid, tp_px)
+            else:
+                logger.warning("TP placement: no oid | %s", result)
+            return oid
+        except Exception as exc:
+            logger.error("TP placement failed: %s", exc, exc_info=True)
+            return None
+
+    async def _manage_sl_tp(self) -> None:
+        """Cancel ALL reduce-only orders then atomically re-arm SL + TP for current position.
+        Single lock ensures burst fills don't race to place duplicate SL/TP pairs."""
+        if config.OBSERVER_MODE:
+            return
+        async with self._sl_lock:
+            await self._cancel_all_reduce_only()
+            self.state.sl_oid = None
+            self.state.tp_oid = None
+
+            inv = self.state.inventory_btc
+            entry = self.state.entry_price
+            if abs(inv) < 1e-8 or entry is None:
+                return
+
+            is_long = inv > 0
+            sz = abs(inv)
+            self.state.sl_oid = await self.place_stop_loss(sz, entry, is_long=is_long)
+            self.state.tp_oid = await self.place_take_profit(sz, entry, is_long=is_long)
 
     async def _cancel_sl(self, sl_oid: int) -> None:
         def _cancel():
