@@ -12,7 +12,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-TG_TOKEN = "8817764387:AAEU7LcqL6qolQgLNtIIctXg5-hc1sRLA4w"
+TG_TOKEN = "8641349739:AAHaCA3IRlBJfmw0hBZuqHc2DJwallkyRTo"
 TG_CHAT  = "7164910940"
 HL_API   = "https://api.hyperliquid.xyz/info"
 WALLET   = "0x70C780d4e1497598eEB0ae54CCA6011CD55FF89D"
