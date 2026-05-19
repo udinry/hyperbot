@@ -56,6 +56,8 @@ PAPER_API_URL = "https://api.hyperliquid.xyz"
 MAKER_REBATE  = 0.0001   # −0.01% per leg (Hyperliquid maker, earned)
 TAKER_FEE     = 0.00035  # +0.035% per leg (Hyperliquid taker, paid)
 
+STATE_FILE = _HERE / "paper_state.json"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
@@ -117,18 +119,82 @@ class PaperTrader:
         self._fills   = 0
         self._expires = 0
 
+        # Cumulative stats — persist across restarts via STATE_FILE
+        self._cum_vpnl   = 0.0
+        self._cum_wins   = 0
+        self._cum_losses = 0
+        self._cum_trades = 0
+        self._load_state()
+
+    # ── State persistence ────────────────────────────────────────────────────
+
+    def _load_state(self) -> None:
+        if not STATE_FILE.exists():
+            return
+        try:
+            data = _json.loads(STATE_FILE.read_text())
+            self._cum_vpnl   = float(data.get("cum_vpnl", 0))
+            self._cum_wins   = int(data.get("cum_wins", 0))
+            self._cum_losses = int(data.get("cum_losses", 0))
+            self._cum_trades = int(data.get("cum_trades", 0))
+            pos_data = data.get("position")
+            if pos_data:
+                self._position = VirtualPosition(
+                    direction   = pos_data["direction"],
+                    entry_price = float(pos_data["entry_price"]),
+                    size_btc    = float(pos_data["size_btc"]),
+                    entry_ms    = int(pos_data["entry_ms"]),
+                    sl_price    = float(pos_data["sl_price"]),
+                    tp_price    = float(pos_data["tp_price"]),
+                )
+                direction_str = "LONG" if self._position.direction == "buy" else "SHORT"
+                logger.info(
+                    "Restored position: %s %.4f BTC @ $%.2f | SL=$%.2f TP=$%.2f",
+                    direction_str, self._position.size_btc, self._position.entry_price,
+                    self._position.sl_price, self._position.tp_price,
+                )
+            logger.info(
+                "Loaded state: cumVPnL=$%+.4f trades=%d W=%d L=%d",
+                self._cum_vpnl, self._cum_trades, self._cum_wins, self._cum_losses,
+            )
+        except Exception as e:
+            logger.warning("Failed to load state file: %s", e)
+
+    def _save_state(self) -> None:
+        try:
+            pos_data = None
+            if self._position:
+                pos = self._position
+                pos_data = {
+                    "direction":   pos.direction,
+                    "entry_price": pos.entry_price,
+                    "size_btc":    pos.size_btc,
+                    "entry_ms":    pos.entry_ms,
+                    "sl_price":    pos.sl_price,
+                    "tp_price":    pos.tp_price,
+                }
+            data = {
+                "cum_vpnl":    self._cum_vpnl,
+                "cum_wins":    self._cum_wins,
+                "cum_losses":  self._cum_losses,
+                "cum_trades":  self._cum_trades,
+                "position":    pos_data,
+                "saved_at_ms": int(time.time() * 1000),
+            }
+            STATE_FILE.write_text(_json.dumps(data, indent=2))
+        except Exception as e:
+            logger.warning("Failed to save state: %s", e)
+
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _virtual_pnl(self) -> float:
-        """Running virtual P&L: closed trades + open position uPnL at mid."""
-        closed = sum(t.pnl_usd for t in self._closed)
+        """Cumulative VPnL across all restarts + current open position uPnL."""
+        open_upnl = 0.0
         if self._position and self.state.book:
             mid = self.state.book.mid_price() or self._position.entry_price
             dm  = 1 if self._position.direction == "buy" else -1
             open_upnl = dm * (mid - self._position.entry_price) * self._position.size_btc
-        else:
-            open_upnl = 0.0
-        return closed + open_upnl
+        return self._cum_vpnl + open_upnl
 
     def _close_position(self, exit_price: float, reason: str) -> ClosedTrade:
         pos = self._position
@@ -136,11 +202,12 @@ class PaperTrader:
         dm      = 1 if pos.direction == "buy" else -1
         raw_pnl = dm * (exit_price - pos.entry_price) * pos.size_btc
         notional = pos.size_btc * exit_price
-        # Entry: ALO (earn rebate), Exit: IOC for SL/signal, ALO for TP
+        # Entry: ALO (earn rebate), Exit: IOC for SL/signal, ALO for TP.
+        # fee > 0 means net income (rebates), fee < 0 means net cost (taker fees).
         if reason == "tp":
-            fee = -2 * MAKER_REBATE * notional   # earn both legs
+            fee = 2 * MAKER_REBATE * notional        # earn rebate both legs
         else:
-            fee = -(MAKER_REBATE * notional) + TAKER_FEE * notional  # earn entry, pay exit
+            fee = MAKER_REBATE * notional - TAKER_FEE * notional  # earn entry, pay exit
         net_pnl = raw_pnl + fee
         ct = ClosedTrade(
             direction    = pos.direction,
@@ -153,8 +220,17 @@ class PaperTrader:
         self._closed.append(ct)
         self._position = None
 
+        # Update cumulative stats and persist.
+        if net_pnl > 0:
+            self._cum_wins += 1
+        else:
+            self._cum_losses += 1
+        self._cum_trades += 1
+        self._cum_vpnl += net_pnl
+        self._save_state()
+
         direction_str = "LONG" if pos.direction == "buy" else "SHORT"
-        total_pnl = self._virtual_pnl()
+        total_pnl = self._virtual_pnl()  # = cum_vpnl (position just closed)
         logger.info(
             "[PAPER] CLOSE %s @ $%.2f | reason=%s | net=$%+.4f | totalVPnL=$%+.4f",
             direction_str, exit_price, reason, net_pnl, total_pnl,
@@ -319,6 +395,7 @@ class PaperTrader:
                     tp_price    = tp_price,
                 )
                 self._fills += 1
+                self._save_state()  # persist open position
 
                 direction_str = "LONG" if order.direction == "buy" else "SHORT"
                 logger.info(
@@ -337,8 +414,8 @@ class PaperTrader:
         from datetime import datetime, timezone
         ts      = datetime.now(timezone.utc).strftime("%H:%M UTC")
         vpnl    = self._virtual_pnl()
-        n_wins  = sum(1 for t in self._closed if t.pnl_usd > 0)
-        n_loss  = sum(1 for t in self._closed if t.pnl_usd <= 0)
+        n_wins  = self._cum_wins
+        n_loss  = self._cum_losses
         fill_rt = (self._fills / self._signals * 100) if self._signals else 0
 
         pos_str = "flat"
@@ -369,14 +446,12 @@ class PaperTrader:
         logger.info("  PAPER SESSION COMPLETE")
         logger.info(sep)
         for i, t in enumerate(self._closed, 1):
-            dm  = 1 if t.direction == "buy" else -1
             wl  = "W" if t.pnl_usd > 0 else "L"
             logger.info(
                 "  %3d. %-5s entry=%.2f exit=%.2f pnl=%+.4f %-3s reason=%s",
                 i, t.direction.upper(), t.entry_price, t.exit_price, t.pnl_usd, wl, t.close_reason,
             )
-        total = sum(t.pnl_usd for t in self._closed)
-        logger.info("  Total closed VPnL: %+.4f", total)
+        logger.info("  Cumulative VPnL: %+.4f (all-time, %d trades)", self._cum_vpnl, self._cum_trades)
         logger.info(sep)
 
 
