@@ -225,6 +225,7 @@ npm run build
 - `udbhav-markets-healthcheck.*` — systemd timer for health checks
 - `hyperbot-bot.service` — runs hft_bot/main.py (start/stop only — Restart=no so circuit breaker exits cleanly)
 - `hyperbot-ui.service` — management UI Flask app on port 5001 (/opt/hyperbot/hyperbot_ui/)
+- `hyperbot-monitor.service` — always-on Telegram monitor (`monitor/telegram_monitor.py`); instant alerts on fills/signals/SL/errors + hourly status summary; Restart=always
 
 ### VPS: ubuntu@92.4.75.27
 - `/opt/hyperbot/` — clone of this repo (owned by ubuntu)

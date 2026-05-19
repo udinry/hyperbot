@@ -8,6 +8,7 @@ import re
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -28,7 +29,7 @@ SUPPRESS_RE = re.compile(
 
 def tg(msg: str) -> None:
     try:
-        data = urllib.request.urlencode({"chat_id": TG_CHAT, "text": msg}).encode()
+        data = urllib.parse.urlencode({"chat_id": TG_CHAT, "text": msg}).encode()
         req = urllib.request.Request(
             f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage", data=data
         )
