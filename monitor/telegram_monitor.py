@@ -133,7 +133,8 @@ def tail_log() -> None:
             continue
         if SUPPRESS_RE.search(line):
             continue
-        msg = re.sub(r".*python\[\d+\]: \d{2}:\d{2}:\d{2}\.\d+ ", "", line)
+        # Strip journalctl prefix, timestamp, and log level — leaves "module | message"
+        msg = re.sub(r".*python\[\d+\]: \d{2}:\d{2}:\d{2}\.\d+ \[\w+\] ", "", line)
         if any(w in line for w in ["EMERGENCY", "ERROR", "CRITICAL", "circuit", "killed", "Traceback"]):
             prefix = "[CRITICAL]"
         elif "WARNING" in line:
