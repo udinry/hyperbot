@@ -559,7 +559,12 @@ async def _handle_book(
 
     # --- Exit signals (when holding a position, check OFI for early close) ---
     elif state.status == BotStatus.PAUSED_INVENTORY:
-        exit_sig = evaluate_exit_signal(state, ofi)
+        # Skip exit signal when uPnL is positive but too small to cover IOC round-trip fees.
+        # IOC-IOC costs ~0.07% notional; exiting at <$0.54 profit on 0.01 BTC is net negative.
+        _upnl = (mid - (state.entry_price or mid)) * state.inventory_btc
+        _ioc_fee_breakeven = 2 * 0.00035 * abs(state.inventory_btc) * mid
+        _skip_exit = 0 < _upnl < _ioc_fee_breakeven
+        exit_sig = None if _skip_exit else evaluate_exit_signal(state, ofi)
         if exit_sig is not None:
             sz = abs(state.inventory_btc)
             if exit_sig == "sell":  # close long — force IOC reduce-only sell
