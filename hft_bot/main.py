@@ -219,9 +219,37 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
         mid = state.mid_price()
         if not mid or mid <= 0:
             return
+        # On HL, spot USDC serves as perp collateral without explicit transfer.
+        # If perp equity is low, fall back to spot USDC balance.
+        if balance < 5.0:
+            import json as _json, urllib.request as _ur
+            def _spot():
+                payload = _json.dumps({"type": "spotClearinghouseState", "user": wallet_address}).encode()
+                req = _ur.Request(
+                    config.API_URL.rstrip("/") + "/info",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with _ur.urlopen(req, timeout=5) as resp:
+                    return _json.loads(resp.read())
+            try:
+                spot_data = await loop.run_in_executor(None, _spot)
+                for b in spot_data.get("balances", []):
+                    if b.get("coin") == "USDC":
+                        spot_usdc = float(b.get("total", 0))
+                        if spot_usdc >= 5.0:
+                            logger.info(
+                                "Perp equity $%.2f; using spot USDC $%.2f as collateral",
+                                balance, spot_usdc,
+                            )
+                            balance = spot_usdc
+                        break
+            except Exception as exc:
+                logger.warning("spot balance fallback failed: %s", exc)
         if balance < 5.0:
             logger.warning(
-                "Perp account balance $%.2f too low to trade — fund the perp account on Hyperliquid",
+                "Effective balance $%.2f too low to trade — fund the account on Hyperliquid",
                 balance,
             )
             return
