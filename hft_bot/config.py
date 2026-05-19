@@ -154,6 +154,16 @@ WS_RECONNECT_DELAY_S: float = float(os.getenv("WS_RECONNECT_DELAY_S", "2.0"))
 WS_MAX_RECONNECTS: int = int(os.getenv("WS_MAX_RECONNECTS", "10"))
 
 # ---------------------------------------------------------------------------
+# Live-test scale factor
+# ---------------------------------------------------------------------------
+# When running with minimum position size (0.001 BTC) to validate strategy
+# with real exchange mechanics, set LIVE_TEST_SCALE to the ratio of the
+# intended full-size position to the test size.
+# Example: full size 0.010 BTC, test size 0.001 BTC → LIVE_TEST_SCALE=10
+# All P&L logs then show both actual and projected-at-scale numbers.
+LIVE_TEST_SCALE: float = float(os.getenv("LIVE_TEST_SCALE", "1.0"))
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

@@ -482,7 +482,12 @@ async def ws_health_monitor(
 async def stats_logger(state: BotState) -> None:
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(2)
-        logger.info("STATE | %s", state.summary())
+        summary = state.summary()
+        if config.LIVE_TEST_SCALE != 1.0:
+            scaled_pnl = state.daily_pnl_usd * config.LIVE_TEST_SCALE
+            scaled_upnl = state.unrealized_pnl_usd() * config.LIVE_TEST_SCALE
+            summary += f" [×{config.LIVE_TEST_SCALE:.0f} → realPnL≈{scaled_pnl:+.2f}$ uPnL≈{scaled_upnl:+.2f}$]"
+        logger.info("STATE | %s", summary)
 
 
 async def main_loop(
@@ -712,10 +717,13 @@ async def run() -> None:
             t.cancel()
         ws_manager_holder[0].stop()
         logger.info("Final state: %s", state.summary())
+        scale_str = ""
+        if config.LIVE_TEST_SCALE != 1.0:
+            scale_str = f" | projected×{config.LIVE_TEST_SCALE:.0f}={state.daily_pnl_usd * config.LIVE_TEST_SCALE:+.2f}$"
         logger.info(
-            "Session summary | orders=%d fills=%d cancelled=%d buys=%d sells=%d | realised_PnL=%.2f$",
+            "Session summary | orders=%d fills=%d cancelled=%d buys=%d sells=%d | realised_PnL=%.2f$%s",
             state.total_orders_placed, state.total_orders_filled, state.total_orders_cancelled,
-            state.total_buys_filled, state.total_sells_filled, state.daily_pnl_usd,
+            state.total_buys_filled, state.total_sells_filled, state.daily_pnl_usd, scale_str,
         )
 
 
