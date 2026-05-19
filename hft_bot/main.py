@@ -560,21 +560,23 @@ async def _handle_book(
         exit_sig = evaluate_exit_signal(state, ofi)
         if exit_sig is not None:
             sz = abs(state.inventory_btc)
-            if exit_sig == "sell":  # close long — IOC reduce-only sell
+            if exit_sig == "sell":  # close long — force IOC reduce-only sell
                 best_bid = book.best_bid()
                 if best_bid is None:
                     return
                 price = best_bid.price - _IOC_SLIP
                 await executor.place_limit_order(
-                    is_buy=False, price=price, size=sz, spread=spread, reduce_only=True
+                    is_buy=False, price=price, size=sz, spread=spread,
+                    reduce_only=True, force_ioc=True,
                 )
-            elif exit_sig == "buy":  # close short — IOC reduce-only buy
+            elif exit_sig == "buy":  # close short — force IOC reduce-only buy
                 best_ask = book.best_ask()
                 if best_ask is None:
                     return
                 price = best_ask.price + _IOC_SLIP
                 await executor.place_limit_order(
-                    is_buy=True, price=price, size=sz, spread=spread, reduce_only=True
+                    is_buy=True, price=price, size=sz, spread=spread,
+                    reduce_only=True, force_ioc=True,
                 )
 
 

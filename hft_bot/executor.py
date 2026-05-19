@@ -76,16 +76,18 @@ class OrderExecutor:
         size: float,
         spread: float = 0.0,
         reduce_only: bool = False,
+        force_ioc: bool = False,
     ) -> Optional[int]:
         """
         Place a limit order with spread-adaptive TIF:
           - Spread <= WIDE_SPREAD_BPS -> ALO (post-only, maker rebate)
           - Spread >  WIDE_SPREAD_BPS -> IOC (immediate-or-cancel, guaranteed fill)
+          - force_ioc=True always uses IOC (for exit orders where fill is required)
         """
         mid = self.state.mid_price() or price
         spread_bps = (spread / mid * 10_000) if mid > 0 else 0
 
-        use_ioc = spread_bps > config.WIDE_SPREAD_BPS
+        use_ioc = force_ioc or spread_bps > config.WIDE_SPREAD_BPS
         tif = "Ioc" if use_ioc else "Alo"
         direction = "BUY " if is_buy else "SELL"
 

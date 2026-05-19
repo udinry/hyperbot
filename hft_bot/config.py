@@ -136,7 +136,7 @@ TAKE_PROFIT_PCT: float = float(os.getenv("TAKE_PROFIT_PCT", "0.0025"))
 EXIT_OFI_THRESHOLD: float = float(os.getenv("EXIT_OFI_THRESHOLD", "0.55"))
 
 # Minimum ms between consecutive exit-signal evaluations.
-EXIT_COOLDOWN_MS: int = int(os.getenv("EXIT_COOLDOWN_MS", "500"))
+EXIT_COOLDOWN_MS: int = int(os.getenv("EXIT_COOLDOWN_MS", "2000"))
 
 MAX_INVENTORY_BTC: float = float(_risk["max_inventory_btc"])
 STOP_LOSS_PCT: float = float(_risk["stop_loss_pct"])
