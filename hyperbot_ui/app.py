@@ -234,5 +234,109 @@ def api_log():
     return jsonify({"lines": [l.rstrip() for l in lines]})
 
 
+PAPER_SERVICE = "hyperbot-paper"
+
+_PAPER_FILL_RE  = re.compile(
+    r"(\d{2}:\d{2}:\d{2}).*\[PAPER\] FILL (LONG|SHORT) ([\d.]+) BTC @ \$([\d.,]+) \| SL=\$([\d.,]+) TP=\$([\d.,]+)"
+)
+_PAPER_CLOSE_RE = re.compile(
+    r"(\d{2}:\d{2}:\d{2}).*\[PAPER\] CLOSE (LONG|SHORT) @ \$([\d.,]+) \| reason=(\w+) \| net=\$([+\-\d.]+) \| totalVPnL=\$([+\-\d.]+)"
+)
+_PAPER_SIGNAL_RE = re.compile(
+    r"(\d{2}:\d{2}:\d{2}).*\[PAPER\] SIGNAL (BUY|SELL) OFI=([+\-\d.]+)"
+)
+
+
+def _paper_logs(n: int = 500) -> list[str]:
+    try:
+        r = subprocess.run(
+            ["journalctl", "-u", PAPER_SERVICE, "--no-pager", "-n", str(n)],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.splitlines()
+    except Exception:
+        return []
+
+
+def _parse_paper_state() -> dict:
+    lines = _paper_logs(2000)
+    fills  = []
+    closes = []
+    signals = 0
+    vpnl   = None
+
+    for line in lines:
+        if (m := _PAPER_FILL_RE.search(line)):
+            fills.append({
+                "time": m.group(1),
+                "dir":  m.group(2),
+                "size": float(m.group(3)),
+                "price": float(m.group(4).replace(",", "")),
+                "sl":    float(m.group(5).replace(",", "")),
+                "tp":    float(m.group(6).replace(",", "")),
+            })
+        elif (m := _PAPER_CLOSE_RE.search(line)):
+            closes.append({
+                "time":   m.group(1),
+                "dir":    m.group(2),
+                "exit":   float(m.group(3).replace(",", "")),
+                "reason": m.group(4),
+                "net":    float(m.group(5)),
+                "vpnl":   float(m.group(6)),
+            })
+            vpnl = float(m.group(6))
+        elif _PAPER_SIGNAL_RE.search(line):
+            signals += 1
+
+    current_position = None
+    if len(fills) > len(closes):
+        f = fills[-1]
+        current_position = f
+
+    wins  = sum(1 for c in closes if c["net"] > 0)
+    losses = len(closes) - wins
+
+    return {
+        "service":  "active" if _svc_status_paper() == "active" else "inactive",
+        "signals":  signals,
+        "fills":    len(fills),
+        "closes":   len(closes),
+        "wins":     wins,
+        "losses":   losses,
+        "vpnl":     vpnl or 0.0,
+        "position": current_position,
+        "history":  closes[-50:],
+    }
+
+
+def _svc_status_paper() -> str:
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", PAPER_SERVICE],
+            capture_output=True, text=True, timeout=3,
+        )
+        return r.stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+@app.route("/hyperbot/paperbot")
+@app.route("/hyperbot/paperbot/")
+def paperbot_index():
+    return render_template("paperbot.html")
+
+
+@app.route("/hyperbot/api/paper/status")
+def api_paper_status():
+    return jsonify(_parse_paper_state())
+
+
+@app.route("/hyperbot/api/paper/log")
+def api_paper_log():
+    lines = _paper_logs(200)
+    paper_lines = [l for l in lines if "[PAPER]" in l or "SIGNAL" in l or "FILL" in l or "CLOSE" in l]
+    return jsonify({"lines": paper_lines[-100:]})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)

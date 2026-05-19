@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hyperbot — Paper</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0a; --surface: #111; --surface2: #161616; --border: #1e1e1e;
+      --text: #e2e2e2; --muted: #555; --muted2: #2a2a2a;
+      --green: #22c55e; --red: #ef4444; --yellow: #eab308; --blue: #3b82f6; --purple: #a855f7;
+      --mono: 'SF Mono','Fira Code','Cascadia Code',monospace;
+    }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size: 13px; line-height: 1.5; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .hdr { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    .hdr-left { display:flex; align-items:center; gap:10px; }
+    h1 { font-size:16px; font-weight:700; }
+    .badge { display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:20px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; }
+    .badge::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+    .b-active { background:rgba(168,85,247,.1); color:var(--purple); }
+    .b-inactive { background:rgba(85,85,85,.12); color:var(--muted); }
+    a.back { font-size:11px; color:var(--muted); text-decoration:none; }
+    a.back:hover { color:var(--text); }
+
+    .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:10px; }
+    .stat { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:11px 13px; }
+    .stat-label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:3px; }
+    .stat-value { font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.2; }
+    .stat-sub { font-size:10px; color:var(--muted); margin-top:2px; }
+    .pos { color:var(--green); } .neg { color:var(--red); } .neu { color:var(--text); }
+
+    .section { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px; }
+    .section-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); margin-bottom:10px; }
+
+    table { width:100%; border-collapse:collapse; font-size:11px; font-family:var(--mono); }
+    th { text-align:left; padding:5px 8px; border-bottom:1px solid var(--border); font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; font-weight:600; }
+    td { padding:5px 8px; border-bottom:1px solid var(--muted2); }
+    tr:last-child td { border-bottom:none; }
+    .w { color:var(--green); } .l { color:var(--red); }
+
+    .log-box { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px; font-family:var(--mono); font-size:10px; line-height:1.6; max-height:320px; overflow-y:auto; }
+    .log-line { color:var(--muted); }
+    .log-line.fill   { color:var(--purple); }
+    .log-line.close-w { color:var(--green); }
+    .log-line.close-l { color:var(--red); }
+    .log-line.signal { color:var(--blue); }
+
+    .pos-box { background:rgba(168,85,247,.06); border:1px solid rgba(168,85,247,.2); border-radius:8px; padding:12px; margin-bottom:10px; font-family:var(--mono); font-size:12px; }
+    .pos-box .label { font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; margin-bottom:4px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <div class="hdr-left">
+      <h1>Hyperbot — Paper Shadow</h1>
+      <span class="badge" id="svc-badge">Loading</span>
+    </div>
+    <a class="back" href="/hyperbot">← Live bot</a>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Session VPnL</div>
+      <div class="stat-value" id="vpnl">—</div>
+      <div class="stat-sub" id="vpnl-sub"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Closed Trades</div>
+      <div class="stat-value" id="closes">—</div>
+      <div class="stat-sub" id="wl-sub"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Fill Rate</div>
+      <div class="stat-value" id="fill-rate">—</div>
+      <div class="stat-sub" id="fill-sub"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Signals</div>
+      <div class="stat-value" id="signals">—</div>
+    </div>
+  </div>
+
+  <div id="pos-section" style="display:none" class="pos-box">
+    <div class="label">Open Virtual Position</div>
+    <div id="pos-detail"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Trade History (last 50 closes)</div>
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Dir</th><th>Exit $</th><th>Reason</th><th>Net VPnL</th><th>Cumul VPnL</th><th>W/L</th></tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="7" style="color:var(--muted);text-align:center">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Paper Log (last 100 lines)</div>
+    <div class="log-box" id="log-box">Loading...</div>
+  </div>
+</div>
+
+<script>
+function fmt(v, dec=4) { return (v >= 0 ? '+' : '') + v.toFixed(dec); }
+function pclass(v) { return v > 0 ? 'pos' : v < 0 ? 'neg' : 'neu'; }
+
+async function refresh() {
+  try {
+    const r = await fetch('/hyperbot/api/paper/status');
+    const d = await r.json();
+
+    const badge = document.getElementById('svc-badge');
+    badge.textContent = d.service === 'active' ? 'Running' : 'Offline';
+    badge.className = 'badge ' + (d.service === 'active' ? 'b-active' : 'b-inactive');
+
+    const vpnl = d.vpnl || 0;
+    const vpnlEl = document.getElementById('vpnl');
+    vpnlEl.textContent = fmt(vpnl) + '$';
+    vpnlEl.className = 'stat-value ' + pclass(vpnl);
+    document.getElementById('vpnl-sub').textContent = 'virtual, not real money';
+
+    document.getElementById('closes').textContent = d.closes;
+    document.getElementById('wl-sub').textContent = `${d.wins}W / ${d.losses}L`;
+
+    const fillRate = d.fills > 0 && d.signals > 0 ? (d.fills / d.signals * 100).toFixed(0) + '%' : '—';
+    document.getElementById('fill-rate').textContent = fillRate;
+    document.getElementById('fill-sub').textContent = `${d.fills} fills / ${d.signals} signals`;
+    document.getElementById('signals').textContent = d.signals;
+
+    const posSection = document.getElementById('pos-section');
+    if (d.position) {
+      posSection.style.display = 'block';
+      document.getElementById('pos-detail').textContent =
+        `${d.position.dir}  ${d.position.size} BTC @ $${d.position.price.toLocaleString()}` +
+        `  |  SL $${d.position.sl.toLocaleString()}  TP $${d.position.tp.toLocaleString()}` +
+        `  |  filled at ${d.position.time}`;
+    } else {
+      posSection.style.display = 'none';
+    }
+
+    const tbody = document.getElementById('history-body');
+    if (d.history && d.history.length > 0) {
+      const rows = [...d.history].reverse().map(t => {
+        const wl = t.net > 0 ? 'W' : 'L';
+        return `<tr>
+          <td>${t.time}</td>
+          <td>${t.dir}</td>
+          <td>$${t.exit.toLocaleString()}</td>
+          <td>${t.reason}</td>
+          <td class="${pclass(t.net)}">${fmt(t.net)}$</td>
+          <td class="${pclass(t.vpnl)}">${fmt(t.vpnl)}$</td>
+          <td class="${wl === 'W' ? 'w' : 'l'}">${wl}</td>
+        </tr>`;
+      }).join('');
+      tbody.innerHTML = rows;
+    } else {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center">No closed trades yet</td></tr>';
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function refreshLog() {
+  try {
+    const r = await fetch('/hyperbot/api/paper/log');
+    const d = await r.json();
+    const box = document.getElementById('log-box');
+    box.innerHTML = d.lines.map(l => {
+      let cls = 'log-line';
+      if (l.includes('[PAPER] FILL')) cls += ' fill';
+      else if (l.includes('[PAPER] CLOSE')) cls += (l.includes('net=$+') ? ' close-w' : ' close-l');
+      else if (l.includes('[PAPER] SIGNAL') || l.includes('signal')) cls += ' signal';
+      return `<div class="${cls}">${l.replace(/</g,'&lt;')}</div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  } catch(e) {}
+}
+
+refresh();
+refreshLog();
+setInterval(refresh, 5000);
+setInterval(refreshLog, 10000);
+</script>
+</body>
+</html>
