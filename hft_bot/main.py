@@ -215,38 +215,34 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
     try:
         from concurrent.futures import ThreadPoolExecutor as _TPE
         data = await loop.run_in_executor(None, info.user_state, wallet_address)
-        balance = float(data["marginSummary"]["accountValue"])
+        perp_equity = float(data["marginSummary"]["accountValue"])
         mid = state.mid_price()
         if not mid or mid <= 0:
             return
-        # On HL, spot USDC serves as perp collateral without explicit transfer.
-        # If perp equity is low, fall back to spot USDC balance.
-        if balance < 5.0:
-            import json as _json, urllib.request as _ur
-            def _spot():
-                payload = _json.dumps({"type": "spotClearinghouseState", "user": wallet_address}).encode()
-                req = _ur.Request(
-                    config.API_URL.rstrip("/") + "/info",
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with _ur.urlopen(req, timeout=5) as resp:
-                    return _json.loads(resp.read())
-            try:
-                spot_data = await loop.run_in_executor(None, _spot)
-                for b in spot_data.get("balances", []):
-                    if b.get("coin") == "USDC":
-                        spot_usdc = float(b.get("total", 0))
-                        if spot_usdc >= 5.0:
-                            logger.info(
-                                "Perp equity $%.2f; using spot USDC $%.2f as collateral",
-                                balance, spot_usdc,
-                            )
-                            balance = spot_usdc
-                        break
-            except Exception as exc:
-                logger.warning("spot balance fallback failed: %s", exc)
+        # On HL, spot USDC IS the trading balance — perp accountValue is the subset
+        # locked as margin for open positions. Always fetch spot to get the true total.
+        import json as _json, urllib.request as _ur
+        def _spot():
+            payload = _json.dumps({"type": "spotClearinghouseState", "user": wallet_address}).encode()
+            req = _ur.Request(
+                config.API_URL.rstrip("/") + "/info",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=5) as resp:
+                return _json.loads(resp.read())
+        spot_usdc = 0.0
+        try:
+            spot_data = await loop.run_in_executor(None, _spot)
+            for b in spot_data.get("balances", []):
+                if b.get("coin") == "USDC":
+                    spot_usdc = float(b.get("total", 0))
+                    break
+        except Exception as exc:
+            logger.warning("spot balance fetch failed: %s", exc)
+        balance = max(perp_equity, spot_usdc)
+        logger.debug("Balance: perp_equity=$%.2f spot_usdc=$%.2f → using $%.2f", perp_equity, spot_usdc, balance)
         if balance < 5.0:
             logger.warning(
                 "Effective balance $%.2f too low to trade — fund the account on Hyperliquid",
