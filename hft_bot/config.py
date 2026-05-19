@@ -138,6 +138,10 @@ EXIT_OFI_THRESHOLD: float = float(os.getenv("EXIT_OFI_THRESHOLD", "0.55"))
 # Minimum ms between consecutive exit-signal evaluations.
 EXIT_COOLDOWN_MS: int = int(os.getenv("EXIT_COOLDOWN_MS", "2000"))
 
+# Minimum |TFI| for exit signal confirmation — kept lower than entry MIN_TFI_STRENGTH
+# so exits trigger quickly on OFI reversal without requiring as strong trade flow.
+EXIT_MIN_TFI_STRENGTH: float = float(os.getenv("EXIT_MIN_TFI_STRENGTH", "0.10"))
+
 MAX_INVENTORY_BTC: float = float(_risk["max_inventory_btc"])
 STOP_LOSS_PCT: float = float(_risk["stop_loss_pct"])
 MAX_DAILY_LOSS_USD: float = float(_risk["max_daily_loss_usd"])

@@ -346,7 +346,7 @@ def evaluate_exit_signal(state: BotState, ofi: float) -> Optional[str]:
         return None
 
     tfi = compute_tfi(state)
-    min_tfi = config.MIN_TFI_STRENGTH
+    min_tfi = getattr(config, "EXIT_MIN_TFI_STRENGTH", config.MIN_TFI_STRENGTH)
     threshold = config.EXIT_OFI_THRESHOLD
 
     if state.inventory_btc > 0:  # long — need SELL to close
