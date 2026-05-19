@@ -198,11 +198,23 @@ class PaperTrader:
 
         # 4. Check exit signal for open position.
         if self._position:
+            pos = self._position
             self.state.inventory_btc = (
-                self._position.size_btc if self._position.direction == "buy"
-                else -self._position.size_btc
+                pos.size_btc if pos.direction == "buy" else -pos.size_btc
             )
             exit_sig = evaluate_exit_signal(self.state, ofi)
+            if exit_sig is not None and mid is not None:
+                dm    = 1 if pos.direction == "buy" else -1
+                upnl  = dm * (mid - pos.entry_price) * pos.size_btc
+                # Don't exit at a tiny profit that the IOC exit fee would erase.
+                # IOC taker on exit costs ~0.035% notional; entry ALO earned ~0.01% rebate.
+                # Net exit cost ≈ 0.025% of notional. Skip if profit < that.
+                ioc_exit_cost = TAKER_FEE * pos.size_btc * mid
+                if 0 < upnl < ioc_exit_cost:
+                    logger.debug(
+                        "Exit suppressed: upnl=%.4f < ioc_cost=%.4f", upnl, ioc_exit_cost
+                    )
+                    exit_sig = None
             if exit_sig is not None and mid is not None:
                 self._close_position(mid, "exit_signal")
                 self.state.inventory_btc = 0.0
