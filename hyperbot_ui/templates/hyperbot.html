@@ -130,8 +130,9 @@
   <!-- Status stats -->
   <div class="stats">
     <div class="stat">
-      <div class="stat-label">Account Value</div>
+      <div class="stat-label">Perp Equity</div>
       <div class="stat-value neu" id="accountValue">—</div>
+      <div class="stat-sub" id="spotUsdc"></div>
     </div>
     <div class="stat">
       <div class="stat-label">Mid Price</div>
@@ -344,6 +345,11 @@ async function loadPortfolio() {
     const d = await r.json();
     if (d.error) return;
     document.getElementById('accountValue').textContent = fmtPrice(d.account_value);
+    if (d.spot_usdc > 0) {
+      document.getElementById('spotUsdc').textContent = fmtPrice(d.spot_usdc) + ' spot';
+    } else {
+      document.getElementById('spotUsdc').textContent = '';
+    }
     const panel = document.getElementById('positionPanel');
     const pos = d.position;
     if (pos && Math.abs(pos.size) > 0) {

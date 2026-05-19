@@ -182,11 +182,23 @@ def api_stop():
 @app.route("/hyperbot/api/portfolio")
 def api_portfolio():
     try:
-        data = _hl_post({"type": "clearinghouseState", "user": WALLET_ADDRESS})
-        account_value = float(data["marginSummary"]["accountValue"])
-        withdrawable  = float(data.get("withdrawable", 0))
+        perp = _hl_post({"type": "clearinghouseState", "user": WALLET_ADDRESS})
+        perp_equity  = float(perp["marginSummary"]["accountValue"])
+        withdrawable = float(perp.get("withdrawable", 0))
+
+        # Spot USDC balance (separate from the perp trading account)
+        spot_usdc = 0.0
+        try:
+            spot = _hl_post({"type": "spotClearinghouseState", "user": WALLET_ADDRESS})
+            for b in spot.get("balances", []):
+                if b.get("coin") == "USDC":
+                    spot_usdc = float(b.get("total", 0))
+                    break
+        except Exception:
+            pass
+
         position = None
-        for ap in data.get("assetPositions", []):
+        for ap in perp.get("assetPositions", []):
             pos = ap.get("position", {})
             if pos.get("coin") == "BTC":
                 szi = float(pos.get("szi", 0))
@@ -199,7 +211,13 @@ def api_portfolio():
                         "liquidation_px": pos.get("liquidationPx"),
                     }
                 break
-        return jsonify({"account_value": round(account_value, 2), "withdrawable": round(withdrawable, 2), "position": position})
+
+        return jsonify({
+            "account_value": round(perp_equity, 2),
+            "spot_usdc":     round(spot_usdc, 2),
+            "withdrawable":  round(withdrawable, 2),
+            "position":      position,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -219,6 +219,12 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
         mid = state.mid_price()
         if not mid or mid <= 0:
             return
+        if balance < 5.0:
+            logger.warning(
+                "Perp account balance $%.2f too low to trade — fund the perp account on Hyperliquid",
+                balance,
+            )
+            return
         # margin = balance × risk_pct; notional = margin × leverage; btc = notional / mid
         raw = (balance * config.POSITION_RISK_PCT * config.LEVERAGE) / mid
         # Safety cap at 0.1 BTC (~$7700 notional) — sanity limit only, not risk limit.
@@ -338,13 +344,19 @@ async def exchange_sync(state: BotState, executor: "OrderExecutor") -> None:
                     "Exchange sync mismatch | bot=%.4f BTC, exchange=%.4f BTC — syncing",
                     state.inventory_btc, ex_inv,
                 )
+                # Pause trading during sync so a stale signal can't fire and create
+                # a phantom position while state.inventory_btc is being corrected.
+                was_running = state.is_running()
+                if was_running:
+                    state.set_paused_inventory()
                 state.inventory_btc = ex_inv
                 state.entry_price   = pos["entry_px"] if pos else None
                 # Re-arm SL for the real position
                 await executor._manage_stop_loss()
-                # Pause trading if we're at or over the inventory limit
-                if abs(ex_inv) >= state.max_inventory_btc and state.is_running():
-                    state.set_paused_inventory()
+                # Resume only if within inventory limit
+                if was_running and abs(ex_inv) < state.max_inventory_btc:
+                    state.set_running()
+                elif abs(ex_inv) >= state.max_inventory_btc:
                     logger.warning(
                         "Exchange sync: inventory %.4f BTC at limit — pausing", ex_inv
                     )
