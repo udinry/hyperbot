@@ -62,6 +62,7 @@ class OrderExecutor:
         self.loop = loop
         self._account_address = account_address
         self._sl_lock = asyncio.Lock()  # serialise concurrent _manage_stop_loss calls
+        self._sl_tp_pending = False  # debounce: absorb burst partial-fills into one re-arm
 
     async def _run_in_executor(self, fn, *args):
         return await self.loop.run_in_executor(_POOL, fn, *args)
@@ -235,8 +236,10 @@ class OrderExecutor:
             if order and order.cancel_task and not order.cancel_task.done():
                 order.cancel_task.cancel()
 
-            # Refresh SL + TP to reflect new position
-            self.loop.create_task(self._manage_sl_tp())
+            # Refresh SL + TP once after partial-fill burst settles (debounced)
+            if not self._sl_tp_pending:
+                self._sl_tp_pending = True
+                self.loop.create_task(self._manage_sl_tp_debounced())
 
         except Exception as exc:
             logger.error("handle_fill error: %s | raw=%s", exc, fill, exc_info=True)
@@ -370,6 +373,12 @@ class OrderExecutor:
         except Exception as exc:
             logger.error("TP placement failed: %s", exc, exc_info=True)
             return None
+
+    async def _manage_sl_tp_debounced(self) -> None:
+        """Wait 250ms for partial-fill burst to settle, then re-arm SL+TP exactly once."""
+        await asyncio.sleep(0.25)
+        self._sl_tp_pending = False
+        await self._manage_sl_tp()
 
     async def _manage_sl_tp(self) -> None:
         """Cancel ALL reduce-only orders then atomically re-arm SL + TP for current position.
