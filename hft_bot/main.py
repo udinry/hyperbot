@@ -345,6 +345,10 @@ async def _reconcile_position(
                     abs(pos["szi"]), pos["entry_px"], pos["szi"] > 0
                 )
                 state.sl_oid = sl_oid
+                tp_oid = await executor.place_take_profit(
+                    abs(pos["szi"]), pos["entry_px"], pos["szi"] > 0
+                )
+                state.tp_oid = tp_oid
         else:
             logger.info("Startup reconcile | no open %s position", config.COIN)
     except Exception as exc:
