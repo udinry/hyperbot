@@ -38,8 +38,6 @@ import json as _json
 import logging
 import sys
 import time
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -58,31 +56,12 @@ PAPER_API_URL = "https://api.hyperliquid.xyz"
 MAKER_REBATE  = 0.0001   # −0.01% per leg (Hyperliquid maker, earned)
 TAKER_FEE     = 0.00035  # +0.035% per leg (Hyperliquid taker, paid)
 
-# Telegram — same credentials as telegram_monitor.py
-TG_TOKEN = "8641349739:AAHaCA3IRlBJfmw0hBZuqHc2DJwallkyRTo"
-TG_CHAT  = "7164910940"
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("paper_trader")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Telegram
-# ─────────────────────────────────────────────────────────────────────────────
-
-def tg(msg: str) -> None:
-    try:
-        data = urllib.parse.urlencode({"chat_id": TG_CHAT, "text": msg}).encode()
-        req  = urllib.request.Request(
-            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage", data=data
-        )
-        urllib.request.urlopen(req, timeout=5)
-    except Exception as exc:
-        logger.warning("Telegram send failed: %s", exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -179,12 +158,6 @@ class PaperTrader:
         logger.info(
             "[PAPER] CLOSE %s @ $%.2f | reason=%s | net=$%+.4f | totalVPnL=$%+.4f",
             direction_str, exit_price, reason, net_pnl, total_pnl,
-        )
-        sign = "+" if net_pnl >= 0 else ""
-        tg(
-            f"[PAPER] CLOSE {direction_str} {pos.size_btc:.4f} BTC @ ${exit_price:,.2f}\n"
-            f"Reason: {reason.upper()}  Net: {sign}${net_pnl:.4f}\n"
-            f"Session VPnL: {'+' if total_pnl>=0 else ''}${total_pnl:.4f}"
         )
         return ct
 
@@ -341,11 +314,6 @@ class PaperTrader:
                     direction_str, size_btc, actual_fill, sl_price, tp_price,
                     now_ms - order.signal_ms,
                 )
-                tg(
-                    f"[PAPER] FILL {direction_str} {size_btc:.4f} BTC @ ${actual_fill:,.2f}\n"
-                    f"SL=${sl_price:,.2f}  TP=${tp_price:,.2f}\n"
-                    f"Session fills: {self._fills}  VPnL: {'+' if self._virtual_pnl()>=0 else ''}${self._virtual_pnl():.4f}"
-                )
             else:
                 still_pending.append(order)
 
@@ -378,9 +346,7 @@ class PaperTrader:
             f"Closed: {len(self._closed)} trades  W/L: {n_wins}/{n_loss}",
             f"Position: {pos_str}",
         ]
-        msg = "\n".join(lines)
-        logger.info(msg.replace("\n", " | "))
-        tg(msg)
+        logger.info(" | ".join(lines))
 
     def final_report(self) -> None:
         mid = self.state.book.mid_price() if self.state.book else None
@@ -421,7 +387,7 @@ def run_paper_trader(duration_s: float = 0.0, record_file: Optional[str] = None)
                 PAPER_API_URL,
                 "forever" if forever else f"{duration_s:.0f}s",
                 record_file or "off")
-    tg(f"[PAPER] Shadow mode online — OFI+TFI paper trading {config.COIN} mainnet")
+    logger.info("Paper shadow mode — no real orders will be placed")
 
     info = Info(base_url=PAPER_API_URL, skip_ws=False)
 
@@ -480,7 +446,6 @@ def run_paper_trader(duration_s: float = 0.0, record_file: Optional[str] = None)
         if rec_fh:
             rec_fh.close()
         trader.final_report()
-        tg("[PAPER] Shadow mode offline")
 
 
 if __name__ == "__main__":
