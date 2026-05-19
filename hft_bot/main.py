@@ -571,6 +571,9 @@ async def _handle_book(
         exit_sig = None if _skip_exit else evaluate_exit_signal(state, ofi)
         if exit_sig is not None:
             sz = abs(state.inventory_btc)
+            # Block re-evaluation until fill arrives — prevents double-exit race condition.
+            _now_ms = int(time.monotonic_ns() // 1_000_000)
+            state.last_exit_ms = _now_ms + config.LIMIT_ORDER_TIMEOUT_MS
             if exit_sig == "sell":  # close long — force IOC reduce-only sell
                 best_bid = book.best_bid()
                 if best_bid is None:
