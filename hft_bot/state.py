@@ -89,7 +89,8 @@ class OpenOrder:
 # ---------------------------------------------------------------------------
 # OFI rolling-window entry
 # ---------------------------------------------------------------------------
-OFIEntry = Tuple[int, float]   # (timestamp_ms, signed_value)
+OFIEntry = Tuple[int, float]         # (timestamp_ms, signed_value)
+TradeEntry = Tuple[int, float, float]  # (timestamp_ms, signed_volume, price)
 
 
 # ---------------------------------------------------------------------------
@@ -120,9 +121,9 @@ class BotState:
     prev_bids: List[Level] = field(default_factory=list)
     prev_asks: List[Level] = field(default_factory=list)
 
-    # --- Trade flow window (for TFI signal confirmation) ---
-    # Each entry: (timestamp_ms, signed_volume)  positive=buy-initiated, negative=sell
-    trade_window: Deque[OFIEntry] = field(
+    # --- Trade flow window (for TFI + VWAP signals) ---
+    # Each entry: (timestamp_ms, signed_volume, price)
+    trade_window: Deque[TradeEntry] = field(
         default_factory=lambda: deque(maxlen=2000)
     )
 

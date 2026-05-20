@@ -269,48 +269,51 @@ def process_book_update(state: BotState, new_book: OrderBook) -> Optional[float]
 # ---------------------------------------------------------------------------
 
 def ingest_trade(state: BotState, trade: dict) -> None:
-    """
-    Add a single executed trade to the rolling trade window.
-
-    Hyperliquid trade fields used:
-      side: "B" = buyer-initiated, "A" = seller-initiated
-      sz  : size in BTC
-      time: epoch ms
-    """
+    """Add an executed trade to the rolling window with price for VWAP computation."""
     try:
         side   = trade.get("side", "")
         sz     = float(trade.get("sz", 0))
+        px     = float(trade.get("px", 0))
         ts     = int(trade.get("time", _now_ms()))
         signed = sz if side == "B" else -sz
-        state.trade_window.append((ts, signed))
+        state.trade_window.append((ts, signed, px))
     except Exception:
         pass
 
 
-def compute_tfi(state: BotState) -> Optional[float]:
-    """
-    Compute normalised Trade Flow Imbalance in [-1, +1] over the last
-    OFI_WINDOW_MS milliseconds of actual executed trades.
-
-    Returns None if no trades have been seen in the window (graceful
-    degradation: OFI-only signal is used when TFI has no data).
-    """
+def _prune_trade_window(state: BotState) -> None:
     now_ms = _now_ms()
     cutoff = now_ms - config.OFI_WINDOW_MS
-
     while state.trade_window and state.trade_window[0][0] < cutoff:
         state.trade_window.popleft()
 
+
+def compute_tfi(state: BotState) -> Optional[float]:
+    """Normalised Trade Flow Imbalance in [-1, +1] over OFI_WINDOW_MS."""
+    _prune_trade_window(state)
     if not state.trade_window:
         return None
-
-    buy_vol  = sum(v for _, v in state.trade_window if v > 0)
-    sell_vol = sum(-v for _, v in state.trade_window if v < 0)
+    buy_vol  = sum(v for _, v, _ in state.trade_window if v > 0)
+    sell_vol = sum(-v for _, v, _ in state.trade_window if v < 0)
     total    = buy_vol + sell_vol
     if total < 1e-9:
         return None
-
     return (buy_vol - sell_vol) / total
+
+
+def compute_vwap_deviation(state: BotState) -> Optional[float]:
+    """VWAP of recent trades minus current mid price.
+    Positive → recent trades above mid → buy pressure.
+    Negative → recent trades below mid → sell pressure."""
+    _prune_trade_window(state)
+    mid = state.book.mid_price()
+    if not state.trade_window or mid is None:
+        return None
+    total_vol = sum(abs(v) for _, v, _ in state.trade_window)
+    if total_vol < 1e-9:
+        return None
+    vwap = sum(abs(v) * px for _, v, px in state.trade_window) / total_vol
+    return vwap - mid
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +387,17 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
             return None
         if ofi <= config.OFI_SELL_THRESHOLD and qi > qi_thresh:
             logger.debug("Signal suppressed: SELL but qi=%.3f > %.2f (bid-heavy L1)", qi, qi_thresh)
+            return None
+
+    # 2.8. VWAP deviation gate — recent trades must be on the signal side of mid.
+    # VWAP > mid means buyers paid above mid (buy pressure). Graceful: skip if no data.
+    vwap_dev = compute_vwap_deviation(state)
+    if vwap_dev is not None:
+        if ofi >= config.OFI_BUY_THRESHOLD and vwap_dev < 0:
+            logger.debug("Signal suppressed: BUY but VWAP=%.3f below mid (sell pressure)", vwap_dev)
+            return None
+        if ofi <= config.OFI_SELL_THRESHOLD and vwap_dev > 0:
+            logger.debug("Signal suppressed: SELL but VWAP=%.3f above mid (buy pressure)", vwap_dev)
             return None
 
     # 3. TFI confirmation gate.
@@ -476,11 +490,16 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     state._persist_buy  = 0  # type: ignore[attr-defined]
     state._persist_sell = 0  # type: ignore[attr-defined]
 
-    tfi_str = f"{tfi:+.3f}" if tfi is not None else "N/A"
+    tfi_str  = f"{tfi:+.3f}"  if tfi      is not None else "N/A"
+    qi_str   = f"{qi:.3f}"   if qi       is not None else "N/A"
+    vwap_str = f"{vwap_dev:+.2f}$" if vwap_dev is not None else "N/A"
+    fr_str   = f"{fr*100:.4f}%" if fr != 0.0 else "0"
     if candidate == "buy":
-        logger.info("BUY  signal | OFI=%+.4f TFI=%s spread=%.2f$", ofi, tfi_str, spread or 0)
+        logger.info("BUY  signal | OFI=%+.4f TFI=%s QI=%s VWAP=%s FR=%s spread=%.2f$",
+                    ofi, tfi_str, qi_str, vwap_str, fr_str, spread or 0)
     else:
-        logger.info("SELL signal | OFI=%+.4f TFI=%s spread=%.2f$", ofi, tfi_str, spread or 0)
+        logger.info("SELL signal | OFI=%+.4f TFI=%s QI=%s VWAP=%s FR=%s spread=%.2f$",
+                    ofi, tfi_str, qi_str, vwap_str, fr_str, spread or 0)
 
     return candidate
 
