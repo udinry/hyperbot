@@ -643,7 +643,10 @@ def _install_signal_handlers(state: BotState, executor: OrderExecutor, loop: asy
             except Exception as exc:
                 logger.error("Shutdown position fetch failed: %s", exc)
         if state.inventory_btc != 0.0:
-            await executor.emergency_close("graceful_shutdown")
+            if state.tp_oid is not None and state.sl_oid is not None:
+                logger.info("Shutdown: TP+SL both active on exchange — skipping emergency close")
+            else:
+                await executor.emergency_close("graceful_shutdown")
 
     def _handler():
         loop.create_task(_shutdown())
