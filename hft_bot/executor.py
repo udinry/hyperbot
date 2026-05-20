@@ -293,6 +293,9 @@ class OrderExecutor:
             entry = self.state.entry_price
             if abs(inv) < 1e-8 or entry is None:
                 return
+            if _round_size(abs(inv)) < 0.001:
+                logger.warning("_manage_stop_loss: position %.6f BTC rounds to 0 — skipping SL", abs(inv))
+                return
             sl_oid = await self.place_stop_loss(abs(inv), entry, is_long=inv > 0)
             self.state.sl_oid = sl_oid
 
@@ -393,6 +396,9 @@ class OrderExecutor:
             inv = self.state.inventory_btc
             entry = self.state.entry_price
             if abs(inv) < 1e-8 or entry is None:
+                return
+            if _round_size(abs(inv)) < 0.001:
+                logger.warning("_manage_sl_tp: position %.6f BTC rounds to 0 — skipping SL/TP", abs(inv))
                 return
 
             is_long = inv > 0
