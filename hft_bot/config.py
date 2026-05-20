@@ -153,6 +153,11 @@ FUNDING_BIAS_THRESHOLD: float = float(os.getenv("FUNDING_BIAS_THRESHOLD", "0.000
 # for BUY signals, and (1-threshold) for SELL signals.
 QUEUE_IMBAL_THRESHOLD: float = float(os.getenv("QUEUE_IMBAL_THRESHOLD", "0.55"))
 
+# Maximum position hold time in milliseconds. 0 = disabled.
+# OFI signal half-life is 10-30s — after this limit, close at market regardless of P&L.
+# Prevents stale directional exposure when TP/SL are far from current price.
+MAX_POSITION_HOLD_MS: int = int(os.getenv("MAX_POSITION_HOLD_MS", "0"))
+
 # Minimum 1-min ATR ($/min) required to enter a trade. 0 = disabled.
 # Prevents entries during dead-flat markets where the TP target is unreachable.
 ATR_MIN_TRADE_USD: float = float(os.getenv("ATR_MIN_TRADE_USD", "0.0"))

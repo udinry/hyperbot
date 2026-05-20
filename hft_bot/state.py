@@ -158,6 +158,9 @@ class BotState:
     sl_oid: Optional[int] = None
     tp_oid: Optional[int] = None
 
+    # --- Position open timestamp (ms) for time-limit exit ---
+    position_open_ms: Optional[int] = None
+
     # --- Exit signal cooldown (ms timestamp of last OFI-based exit) ---
     last_exit_ms: int = 0
 
@@ -238,10 +241,14 @@ class BotState:
                 remaining = abs(signed_sz) - abs(self.inventory_btc)
                 self.entry_price = fill_px if remaining > 0 else None
 
+        prev_inv = self.inventory_btc
         self.inventory_btc += signed_sz
         if abs(self.inventory_btc) < 1e-8:
             self.inventory_btc = 0.0
             self.entry_price = None
+            self.position_open_ms = None
+        elif abs(prev_inv) < 1e-8 and abs(self.inventory_btc) > 1e-8:
+            self.position_open_ms = int(time.monotonic_ns() // 1_000_000)
 
         self.daily_pnl_usd += closed_pnl
 

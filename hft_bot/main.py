@@ -463,6 +463,21 @@ async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
                     )
                     await executor.emergency_close("stop_loss")
 
+        # Position time limit: if position held longer than MAX_POSITION_HOLD_MS,
+        # close at market. OFI signal half-life is 10-30s; stale positions add
+        # directional risk with no remaining edge.
+        max_hold_ms = getattr(config, "MAX_POSITION_HOLD_MS", 0)
+        if (max_hold_ms > 0 and state.position_open_ms is not None
+                and state.inventory_btc != 0.0):
+            import time as _time
+            held_ms = int(_time.monotonic_ns() // 1_000_000) - state.position_open_ms
+            if held_ms >= max_hold_ms:
+                logger.warning(
+                    "POSITION TIME LIMIT | held=%ds > %ds | closing at market",
+                    held_ms // 1000, max_hold_ms // 1000,
+                )
+                await executor.emergency_close("time_limit")
+
         if state.daily_pnl_usd <= -state.max_daily_loss_usd:
             logger.critical(
                 "CIRCUIT BREAKER | daily_pnl=%.2f$ <= -%.2f$",
