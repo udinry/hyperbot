@@ -116,6 +116,33 @@ def _now_ms() -> int:
     return int(time.monotonic_ns() // 1_000_000)
 
 
+def compute_microprice(book) -> Optional[float]:
+    """Weighted mid price using opposite-side sizes as weights.
+    microprice > mid → bid-heavy book → buy pressure confirmed.
+    microprice < mid → ask-heavy book → sell pressure confirmed."""
+    if not book.bids or not book.asks:
+        return book.mid_price()
+    bid_px, bid_sz = book.bids[0].price, book.bids[0].size
+    ask_px, ask_sz = book.asks[0].price, book.asks[0].size
+    total = bid_sz + ask_sz
+    if total < 1e-9:
+        return (bid_px + ask_px) / 2
+    return (ask_px * bid_sz + bid_px * ask_sz) / total
+
+
+def compute_queue_imbalance(book) -> Optional[float]:
+    """L1 queue imbalance: bid_sz / (bid_sz + ask_sz).
+    > 0.5 → bid-heavy (buy pressure); < 0.5 → ask-heavy (sell pressure)."""
+    if not book.bids or not book.asks:
+        return None
+    bid_sz = book.bids[0].size
+    ask_sz = book.asks[0].size
+    total = bid_sz + ask_sz
+    if total < 1e-9:
+        return None
+    return bid_sz / total
+
+
 def compute_price_trend(state: BotState) -> Optional[float]:
     """
     Returns the price change (in $) over the last PRICE_TREND_WINDOW_MS.
@@ -333,6 +360,31 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     if atr is not None and atr_min > 0 and atr < atr_min:
         logger.debug("Signal suppressed: ATR=%.1f$ < min %.1f$", atr, atr_min)
         return None
+
+    # 2.6. Microprice gate — instantaneous book-pressure confirmation.
+    # microprice > mid = bid-heavy book = buy pressure. Contradicting microprice
+    # means OFI signal and current book snapshot disagree; skip.
+    mp = compute_microprice(state.book)
+    _mid = state.book.mid_price()
+    if mp is not None and _mid is not None and _mid > 0:
+        if ofi >= config.OFI_BUY_THRESHOLD and mp < _mid:
+            logger.debug("Signal suppressed: BUY but microprice=%.2f < mid=%.2f (ask-heavy)", mp, _mid)
+            return None
+        if ofi <= config.OFI_SELL_THRESHOLD and mp > _mid:
+            logger.debug("Signal suppressed: SELL but microprice=%.2f > mid=%.2f (bid-heavy)", mp, _mid)
+            return None
+
+    # 2.7. Queue imbalance gate — L1 bid/ask size ratio confirmation.
+    # Requires book to be directionally skewed (>55% one side) to avoid 50/50 entries.
+    qi = compute_queue_imbalance(state.book)
+    qi_thresh = getattr(config, "QUEUE_IMBAL_THRESHOLD", 0.55)
+    if qi is not None:
+        if ofi >= config.OFI_BUY_THRESHOLD and qi < (1.0 - qi_thresh):
+            logger.debug("Signal suppressed: BUY but qi=%.3f < %.2f (ask-heavy L1)", qi, 1.0 - qi_thresh)
+            return None
+        if ofi <= config.OFI_SELL_THRESHOLD and qi > qi_thresh:
+            logger.debug("Signal suppressed: SELL but qi=%.3f > %.2f (bid-heavy L1)", qi, qi_thresh)
+            return None
 
     # 3. TFI confirmation gate.
     # When no trades have been seen yet (startup or dead market), skip this
