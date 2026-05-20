@@ -553,7 +553,7 @@ async def _handle_book(
                     price = (best_bid.price + config.PRICE_TICK) if best_bid else (best_ask.price - config.PRICE_TICK)
                     if price >= best_ask.price:
                         price = best_ask.price - config.PRICE_TICK
-                await executor.place_limit_order(is_buy=True, price=price, size=state.order_size_btc, spread=spread)
+                await executor.place_limit_order(is_buy=True, price=price, size=state.order_size_btc, spread=spread, force_ioc=use_ioc)
                 state.last_signal_ms = int(time.monotonic_ns() // 1_000_000) + config.LIMIT_ORDER_TIMEOUT_MS
 
             elif signal == "sell":
@@ -567,7 +567,7 @@ async def _handle_book(
                     price = (best_ask.price - config.PRICE_TICK) if best_ask else (best_bid.price + config.PRICE_TICK)
                     if price <= best_bid.price:
                         price = best_bid.price + config.PRICE_TICK
-                await executor.place_limit_order(is_buy=False, price=price, size=state.order_size_btc, spread=spread)
+                await executor.place_limit_order(is_buy=False, price=price, size=state.order_size_btc, spread=spread, force_ioc=use_ioc)
                 state.last_signal_ms = int(time.monotonic_ns() // 1_000_000) + config.LIMIT_ORDER_TIMEOUT_MS
 
     # --- Exit signals (when holding a position, check OFI for early close) ---
