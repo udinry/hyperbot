@@ -340,7 +340,7 @@ class OrderExecutor:
         if config.OBSERVER_MODE:
             return None
 
-        tp_pct = config.TAKE_PROFIT_PCT
+        tp_pct = getattr(self.state, 'dynamic_tp_pct', config.TAKE_PROFIT_PCT)
         tp_px = _round_price(
             entry_price * (1 + tp_pct) if is_long else entry_price * (1 - tp_pct)
         )

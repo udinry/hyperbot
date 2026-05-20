@@ -142,6 +142,22 @@ EXIT_COOLDOWN_MS: int = int(os.getenv("EXIT_COOLDOWN_MS", "2000"))
 # so exits trigger quickly on OFI reversal without requiring as strong trade flow.
 EXIT_MIN_TFI_STRENGTH: float = float(os.getenv("EXIT_MIN_TFI_STRENGTH", "0.10"))
 
+TREND_5MIN_PCT: float = float(os.getenv("TREND_5MIN_PCT", "0.001"))
+
+# Minimum 1-min ATR ($/min) required to enter a trade. 0 = disabled.
+# Prevents entries during dead-flat markets where the TP target is unreachable.
+ATR_MIN_TRADE_USD: float = float(os.getenv("ATR_MIN_TRADE_USD", "0.0"))
+
+# UTC hour range [start, end) during which ALL signals are suppressed.
+# Set both to -1 (default) to disable. Example: start=8, end=12 blocks EU lull.
+TRADE_BLOCK_UTC_START: int = int(os.getenv("TRADE_BLOCK_UTC_START", "-1"))
+TRADE_BLOCK_UTC_END:   int = int(os.getenv("TRADE_BLOCK_UTC_END",   "-1"))
+
+# Use IOC (market-taker) for entry orders instead of ALO (maker).
+# IOC enters immediately at the ask/bid price, avoiding the ALO fill-at-extreme timing issue.
+# Adds ~0.045% fee per entry vs ALO but entries happen on the OFI signal, not a counter-move.
+ENTRY_IOC: bool = os.getenv("ENTRY_IOC", "").lower() in ("1", "true", "yes")
+
 MAX_INVENTORY_BTC: float = float(_risk["max_inventory_btc"])
 STOP_LOSS_PCT: float = float(_risk["stop_loss_pct"])
 MAX_DAILY_LOSS_USD: float = float(_risk["max_daily_loss_usd"])

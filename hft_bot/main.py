@@ -82,7 +82,7 @@ from hyperliquid.utils.constants import MAINNET_API_URL, TESTNET_API_URL
 
 from executor import OrderExecutor
 from state import BotState, BotStatus, Level, OrderBook
-from strategy import evaluate_exit_signal, evaluate_signal, ingest_trade, process_book_update
+from strategy import evaluate_exit_signal, evaluate_signal, ingest_trade, process_book_update, compute_dynamic_tp_pct
 
 _exchange = None
 _account_address: str = ""   # master account address used for all reads
@@ -260,6 +260,10 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
             )
             state.order_size_btc    = new_size
             state.max_inventory_btc = new_size  # inventory limit tracks order size
+        new_tp = compute_dynamic_tp_pct(state)
+        if new_tp != state.dynamic_tp_pct:
+            logger.info("ATR-adaptive TP: %.4f → %.4f (%.2f%%)", state.dynamic_tp_pct, new_tp, new_tp * 100)
+            state.dynamic_tp_pct = new_tp
     except Exception as exc:
         logger.warning("refresh_order_size failed: %s — keeping %.4f BTC", exc, state.order_size_btc)
 
@@ -529,7 +533,7 @@ async def _handle_book(
     spread     = book.spread() or 0.0
     mid        = book.mid_price() or 0.0
     spread_bps = (spread / mid * 10_000) if mid > 0 else 9999
-    use_ioc    = spread_bps > config.WIDE_SPREAD_BPS
+    use_ioc    = spread_bps > config.WIDE_SPREAD_BPS or config.ENTRY_IOC
 
     # IOC slippage buffer: add 20 ticks so limit clears the book even after RTT.
     _IOC_SLIP = 20 * config.PRICE_TICK

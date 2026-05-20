@@ -42,6 +42,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
+from datetime import datetime, timezone
 from typing import Deque, List, Optional, Tuple
 
 import config
@@ -137,6 +138,59 @@ def compute_price_trend(state: BotState) -> Optional[float]:
     return newest_mid - oldest_mid
 
 
+def compute_dynamic_tp_pct(state: BotState) -> float:
+    """ATR-adaptive TP: sample 1-min price changes from mid_history_5m.
+    ATR < $30 -> 0.20%  |  $30-50 -> 0.30%  |  >$50 -> 0.35%"""
+    history = state.mid_history_5m
+    if len(history) < 200:
+        return config.TAKE_PROFIT_PCT
+    now_ms = history[-1][0]
+    one_min = 60_000
+    sampled, j = [], 0
+    for target in [now_ms - i * one_min for i in range(5, -1, -1)]:
+        while j < len(history) - 1 and history[j][0] < target:
+            j += 1
+        sampled.append(history[j][1])
+    if len(sampled) < 3:
+        return config.TAKE_PROFIT_PCT
+    changes = [abs(sampled[i] - sampled[i - 1]) for i in range(1, len(sampled))]
+    atr = sum(changes) / len(changes)
+    if atr < 30:
+        return 0.0020
+    elif atr < 50:
+        return 0.0030
+    else:
+        return 0.0035
+
+
+def compute_5min_trend(state: BotState) -> Optional[float]:
+    """Price change ($) over ~5 min using the capped mid_history_5m deque."""
+    history = state.mid_history_5m
+    if len(history) < 100:
+        return None
+    if _now_ms() - history[0][0] < 60_000:
+        return None
+    return history[-1][1] - history[0][1]
+
+
+def compute_atr(state: BotState) -> Optional[float]:
+    """1-min ATR from mid_history_5m: avg absolute price change per minute, last 10 min."""
+    history = state.mid_history_5m
+    if len(history) < 200:
+        return None
+    now_ms = history[-1][0]
+    one_min = 60_000
+    sampled, j = [], 0
+    for target in [now_ms - i * one_min for i in range(10, -1, -1)]:
+        while j < len(history) - 1 and history[j][0] < target:
+            j += 1
+        sampled.append(history[j][1])
+    if len(sampled) < 3:
+        return None
+    changes = [abs(sampled[i] - sampled[i - 1]) for i in range(1, len(sampled))]
+    return sum(changes) / len(changes)
+
+
 def process_book_update(state: BotState, new_book: OrderBook) -> Optional[float]:
     """
     Ingest a new L2 snapshot, update the rolling OFI window, and return the
@@ -148,6 +202,7 @@ def process_book_update(state: BotState, new_book: OrderBook) -> Optional[float]
     mid = new_book.mid_price()
     if mid is not None:
         state.mid_history.append((now_ms, mid))
+        state.mid_history_5m.append((now_ms, mid))
 
     if state.prev_bids or state.prev_asks:
         delta = compute_ofi_delta(
@@ -250,6 +305,15 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     if now_ms - state.last_signal_ms < config.SIGNAL_COOLDOWN_MS:
         return None
 
+    # 1.5. Time-of-day gate — block during low-activity UTC hours (e.g. EU lull)
+    block_start = getattr(config, "TRADE_BLOCK_UTC_START", -1)
+    block_end   = getattr(config, "TRADE_BLOCK_UTC_END", -1)
+    if block_start >= 0 and block_end >= 0 and block_start < block_end:
+        hour_utc = datetime.now(timezone.utc).hour
+        if block_start <= hour_utc < block_end:
+            logger.debug("Signal suppressed: time gate (hour=%d UTC, block=%d-%d)", hour_utc, block_start, block_end)
+            return None
+
     # 2. Spread liquidity filter
     spread = state.book.spread()
     mid    = state.book.mid_price()
@@ -258,6 +322,14 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
         if spread_bps > config.MAX_SPREAD_BPS:
             logger.debug("Signal suppressed: spread=%.1fbps > max=%.1fbps", spread_bps, config.MAX_SPREAD_BPS)
             return None
+
+    # 2.5. ATR minimum gate — require minimum realized volatility to trade.
+    # Prevents entries during dead-flat markets where TP is nearly unreachable.
+    atr = compute_atr(state)
+    atr_min = getattr(config, "ATR_MIN_TRADE_USD", 0.0)
+    if atr is not None and atr_min > 0 and atr < atr_min:
+        logger.debug("Signal suppressed: ATR=%.1f$ < min %.1f$", atr, atr_min)
+        return None
 
     # 3. TFI confirmation gate.
     # When no trades have been seen yet (startup or dead market), skip this
@@ -286,6 +358,17 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
             return None
         if ofi_wants_sell_trend and trend > 0:
             logger.debug("Signal suppressed: SELL but trend=%.2f$ (rising price)", trend)
+            return None
+
+    # 5a. 5-min momentum gate: OFI impulse must be backed by 5-min price trend.
+    trend_5m = compute_5min_trend(state)
+    if trend_5m is not None and mid:
+        min_trend_5m = getattr(config, "TREND_5MIN_PCT", 0.001) * mid
+        if ofi >= config.OFI_BUY_THRESHOLD and trend_5m < min_trend_5m:
+            logger.debug("Signal suppressed: BUY 5m_trend=%+.1f$ < %.1f$", trend_5m, min_trend_5m)
+            return None
+        if ofi <= config.OFI_SELL_THRESHOLD and trend_5m > -min_trend_5m:
+            logger.debug("Signal suppressed: SELL 5m_trend=%+.1f$ < %.1f$", trend_5m, -min_trend_5m)
             return None
 
     # 5. Persistence counter

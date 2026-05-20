@@ -129,8 +129,17 @@ class BotState:
         default_factory=lambda: deque(maxlen=500)
     )
 
+    # --- 5-min mid-price history for momentum confirmation gate ---
+    # Capped at 2000 entries (~5 min at typical WS tick rate).
+    mid_history_5m: Deque[OFIEntry] = field(
+        default_factory=lambda: deque(maxlen=2000)
+    )
+
     # --- Dynamic position sizing (refreshed from live balance every 5 min) ---
     order_size_btc: float = field(default_factory=lambda: config.ORDER_SIZE_BTC)
+
+    # ATR-adaptive TP pct, updated every 5 min by position sizer. 0=use static config.
+    dynamic_tp_pct: float = field(default_factory=lambda: config.TAKE_PROFIT_PCT)
     # Inventory limit tracks order_size_btc: pauses quoting when |inventory| >= this.
     max_inventory_btc: float = field(default_factory=lambda: config.MAX_INVENTORY_BTC)
     # Circuit breaker threshold: 2 stop-losses worth, scales with position size.
