@@ -4,18 +4,17 @@
 # Tuned for a ~$160 account with 0.01 BTC position size.
 # ---------------------------------------------------------------------------
 
-# Maximum net BTC position (long OR short).
-max_inventory_btc: 0.01
+# Maximum net BTC position (long OR short). Tracks order_size_btc — set to match.
+max_inventory_btc: 0.001
 
 # Hard stop-loss as a fraction of entry price.
-# 0.005 = 0.5% → max loss per trade ≈ $3.84 on 0.01 BTC.
+# 0.005 = 0.5% → max loss per trade ≈ $0.38 on 0.001 BTC.
 # Widened from 0.3%: BTC swings 0.3% within seconds, causing premature SL hits.
-# At 0.5%, TP at 0.5% gives 1:1 risk:reward — only needs 50%+ win rate.
 stop_loss_pct: 0.005
 
 # Daily circuit breaker.
-# $10 = ~2.6 full SL hits — enforces the bad-day limit.
-max_daily_loss_usd: 10.0
+# $2.00 = ~5 full SL hits on 0.001 BTC — tight limit for min-size monitoring phase.
+max_daily_loss_usd: 2.0
 
 # Cross-margin leverage applied at startup.
 leverage: 10

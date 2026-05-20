@@ -697,6 +697,11 @@ async def run() -> None:
         except asyncio.TimeoutError:
             pass
 
+    # Re-run sizing now that mid price is known — startup call returned early (mid=None then)
+    if not config.OBSERVER_MODE and _wallet:
+        await _refresh_order_size(state, _info_rest, _account_address)
+        logger.info("Order size after book: %.4f BTC", state.order_size_btc)
+
     state.set_running()
     logger.info("Bot is LIVE | %s", state.summary())
 
