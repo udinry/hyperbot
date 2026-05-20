@@ -626,26 +626,26 @@ def _install_signal_handlers(state: BotState, executor: OrderExecutor, loop: asy
         logger.warning("Shutdown signal received — cancelling orders and closing positions")
         state.set_stopped()
         await executor.cancel_all_orders()
-        # Cancel exchange-side SL immediately — don't wait for exchange_sync.
-        if state.sl_oid is not None:
-            await executor._cancel_sl(state.sl_oid)
-            state.sl_oid = None
-        # Always verify against exchange — bot state may be stale after restarts.
+        # Verify against exchange before deciding whether to close — bot state may be stale.
         if not config.OBSERVER_MODE and _wallet:
             try:
                 pos = await loop.run_in_executor(None, _fetch_exchange_position)
                 if pos:
                     state.inventory_btc = pos["szi"]
-                    logger.warning(
-                        "Shutdown: exchange shows %.4f BTC open — closing at market",
-                        pos["szi"],
-                    )
             except Exception as exc:
                 logger.error("Shutdown position fetch failed: %s", exc)
         if state.inventory_btc != 0.0:
             if state.tp_oid is not None and state.sl_oid is not None:
-                logger.info("Shutdown: TP+SL both active on exchange — skipping emergency close")
+                # TP+SL resting on exchange protect the position — safe to leave managed.
+                logger.info(
+                    "Shutdown: TP+SL both active on exchange — leaving %.4f BTC position managed",
+                    state.inventory_btc,
+                )
             else:
+                logger.warning(
+                    "Shutdown: %.4f BTC open with no active TP+SL — closing at market",
+                    state.inventory_btc,
+                )
                 await executor.emergency_close("graceful_shutdown")
 
     def _handler():
