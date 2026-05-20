@@ -140,10 +140,12 @@ def compute_price_trend(state: BotState) -> Optional[float]:
 
 def compute_dynamic_tp_pct(state: BotState) -> float:
     """ATR-adaptive TP: sample 1-min price changes from mid_history_5m.
-    ATR < $30 -> 0.20%  |  $30-50 -> 0.30%  |  >$50 -> 0.35%"""
+    ATR < $30 -> 0.20%  |  $30-50 -> 0.30%  |  >$50 -> 0.35%
+    config.TAKE_PROFIT_PCT acts as a floor — .env override is always respected."""
+    base = config.TAKE_PROFIT_PCT
     history = state.mid_history_5m
     if len(history) < 200:
-        return config.TAKE_PROFIT_PCT
+        return base
     now_ms = history[-1][0]
     one_min = 60_000
     sampled, j = [], 0
@@ -152,15 +154,16 @@ def compute_dynamic_tp_pct(state: BotState) -> float:
             j += 1
         sampled.append(history[j][1])
     if len(sampled) < 3:
-        return config.TAKE_PROFIT_PCT
+        return base
     changes = [abs(sampled[i] - sampled[i - 1]) for i in range(1, len(sampled))]
     atr = sum(changes) / len(changes)
     if atr < 30:
-        return 0.0020
+        atr_tp = 0.0020
     elif atr < 50:
-        return 0.0030
+        atr_tp = 0.0030
     else:
-        return 0.0035
+        atr_tp = 0.0035
+    return max(base, atr_tp)
 
 
 def compute_5min_trend(state: BotState) -> Optional[float]:
