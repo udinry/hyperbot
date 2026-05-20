@@ -8,10 +8,13 @@ tasks share a single BotState instance on the same thread; no locks needed.
 from __future__ import annotations
 
 import asyncio
+import csv
+import datetime
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Deque, Dict, List, Optional, Tuple
 
 import config
@@ -157,6 +160,9 @@ class BotState:
     # --- Exit signal cooldown (ms timestamp of last OFI-based exit) ---
     last_exit_ms: int = 0
 
+    # --- Funding rate (hourly, updated every 15 min from metaAndAssetCtxs) ---
+    funding_rate: float = 0.0
+
     # --- Statistics ---
     total_orders_placed: int = 0
     total_orders_filled: int = 0
@@ -191,8 +197,32 @@ class BotState:
     # ---------------------------------------------------------------------------
     # Inventory update after a fill
     # ---------------------------------------------------------------------------
+    def _append_trade_journal(self, direction: str, entry_px: float, exit_px: float,
+                               size: float, closed_pnl: float) -> None:
+        journal = Path(__file__).parent / "trades.csv"
+        write_header = not journal.exists()
+        with open(journal, "a", newline="") as fh:
+            w = csv.writer(fh)
+            if write_header:
+                w.writerow(["utc_time", "direction", "entry_px", "exit_px",
+                             "size_btc", "closed_pnl", "cumulative_pnl"])
+            w.writerow([
+                datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                direction,
+                f"{entry_px:.2f}",
+                f"{exit_px:.2f}",
+                f"{size:.4f}",
+                f"{closed_pnl:.4f}",
+                f"{self.daily_pnl_usd + closed_pnl:.4f}",
+            ])
+
     def record_fill(self, is_buy: bool, fill_px: float, fill_sz: float, closed_pnl: float) -> None:
         signed_sz = fill_sz if is_buy else -fill_sz
+
+        # Write closing fills to persistent trade journal before state changes
+        if abs(closed_pnl) > 1e-9 and self.entry_price is not None and self.inventory_btc != 0.0:
+            direction = "LONG" if self.inventory_btc > 0 else "SHORT"
+            self._append_trade_journal(direction, self.entry_price, fill_px, fill_sz, closed_pnl)
 
         if self.inventory_btc == 0.0 or (self.inventory_btc > 0) == is_buy:
             if self.entry_price is None:

@@ -144,6 +144,15 @@ EXIT_MIN_TFI_STRENGTH: float = float(os.getenv("EXIT_MIN_TFI_STRENGTH", "0.10"))
 
 TREND_5MIN_PCT: float = float(os.getenv("TREND_5MIN_PCT", "0.001"))
 
+# Hourly funding rate (from Hyperliquid metaAndAssetCtxs) above which a long bias
+# is considered overstretched and BUY signals require stronger OFI confirmation.
+# 0.00015 = 0.015%/hr ≈ 13% APR — clearly overcrowded longs territory.
+FUNDING_BIAS_THRESHOLD: float = float(os.getenv("FUNDING_BIAS_THRESHOLD", "0.00015"))
+
+# Queue imbalance gate threshold: require L1 bid_sz/(bid_sz+ask_sz) to exceed this
+# for BUY signals, and (1-threshold) for SELL signals.
+QUEUE_IMBAL_THRESHOLD: float = float(os.getenv("QUEUE_IMBAL_THRESHOLD", "0.55"))
+
 # Minimum 1-min ATR ($/min) required to enter a trade. 0 = disabled.
 # Prevents entries during dead-flat markets where the TP target is unreachable.
 ATR_MIN_TRADE_USD: float = float(os.getenv("ATR_MIN_TRADE_USD", "0.0"))

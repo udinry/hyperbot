@@ -426,6 +426,21 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
             logger.debug("Signal suppressed: SELL 5m_trend=%+.1f$ < %.1f$", trend_5m, -min_trend_5m)
             return None
 
+    # 4.5. Funding rate bias gate.
+    # High positive funding = longs overcrowded = add friction to BUY signals.
+    # Requires 0.10 higher OFI to enter long when funding is extreme.
+    fr = getattr(state, "funding_rate", 0.0)
+    fr_thresh = getattr(config, "FUNDING_BIAS_THRESHOLD", 0.00015)
+    if fr != 0.0 and fr_thresh > 0:
+        if ofi >= config.OFI_BUY_THRESHOLD and fr > fr_thresh:
+            if ofi < config.OFI_BUY_THRESHOLD + 0.10:
+                logger.debug("Signal suppressed: BUY but funding=%.5f%% > threshold (longs crowded)", fr * 100)
+                return None
+        elif ofi <= config.OFI_SELL_THRESHOLD and fr < -fr_thresh:
+            if ofi > config.OFI_SELL_THRESHOLD - 0.10:
+                logger.debug("Signal suppressed: SELL but funding=%.5f%% < -threshold (shorts crowded)", fr * 100)
+                return None
+
     # 5. Persistence counter
     if not hasattr(state, "_persist_buy"):
         state._persist_buy  = 0  # type: ignore[attr-defined]

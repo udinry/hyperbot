@@ -397,6 +397,48 @@ async def exchange_sync(state: BotState, executor: "OrderExecutor") -> None:
     logger.info("Exchange sync exiting")
 
 
+async def funding_monitor(state: BotState) -> None:
+    """Poll Hyperliquid's per-asset funding rate every 15 minutes.
+    Stored in state.funding_rate for use as a directional bias in evaluate_signal."""
+    import json as _json, urllib.request as _ur
+    loop = asyncio.get_running_loop()
+
+    async def _fetch_once():
+        def _req():
+            payload = _json.dumps({"type": "metaAndAssetCtxs"}).encode()
+            req = _ur.Request(
+                config.API_URL.rstrip("/") + "/info",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with _ur.urlopen(req, timeout=10) as resp:
+                return _json.loads(resp.read())
+        data = await loop.run_in_executor(None, _req)
+        meta_list = data[0]["universe"]
+        ctxs = data[1]
+        for i, m in enumerate(meta_list):
+            if m["name"] == config.COIN:
+                return float(ctxs[i]["funding"])
+        return None
+
+    while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+        try:
+            rate = await _fetch_once()
+            if rate is not None and rate != state.funding_rate:
+                logger.info(
+                    "Funding rate: %.6f%%/hr (was %.6f%%/hr) | bias=%s",
+                    rate * 100, state.funding_rate * 100,
+                    "SHORT" if rate > config.FUNDING_BIAS_THRESHOLD else
+                    ("LONG" if rate < -config.FUNDING_BIAS_THRESHOLD else "NEUTRAL"),
+                )
+                state.funding_rate = rate
+        except Exception as exc:
+            logger.debug("funding_monitor: %s", exc)
+        await asyncio.sleep(900)
+    logger.info("Funding monitor exiting")
+
+
 async def position_sizer(state: BotState, info, wallet_address: str) -> None:
     """Background task: re-check account balance every 5 minutes and resize."""
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
@@ -716,6 +758,7 @@ async def run() -> None:
         loop.create_task(ws_health_monitor(ws_manager_holder, queue, loop, state), name="ws_health"),
         loop.create_task(stats_logger(state),                        name="stats_logger"),
         loop.create_task(exchange_sync(state, executor),             name="exchange_sync"),
+        loop.create_task(funding_monitor(state),                     name="funding_monitor"),
     ]
     if sizer_task:
         tasks.append(sizer_task)
