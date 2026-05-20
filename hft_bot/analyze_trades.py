@@ -35,13 +35,41 @@ class Trade:
 
 
 def parse_log(path: Path) -> List[Trade]:
+    """Parse bot.log into completed round-trips.
+    Partial fills (same oid, same closing event) are aggregated into one trade.
+    A trade closes when the next opening fill (closedPnl==0) appears after
+    at least one closing fill has been accumulated."""
     trades: List[Trade] = []
     last_signal: Optional[tuple] = None  # (direction, ofi, tfi)
-    pending_entry: Optional[dict] = None  # {side, px, sz}
+    pending_entry: Optional[dict] = None  # {side, px, sz, ofi, tfi}
+    current_close_pnl: float = 0.0
+    current_close_px: float = 0.0
+    current_close_sz: float = 0.0
+    in_closing_event: bool = False
+
+    def _flush_close():
+        nonlocal current_close_pnl, current_close_px, current_close_sz, in_closing_event
+        if in_closing_event and abs(current_close_pnl) > 1e-9:
+            entry_px   = pending_entry["px"]   if pending_entry else current_close_px
+            entry_side = pending_entry.get("side", "BUY") if pending_entry else "BUY"
+            ofi_val    = pending_entry.get("ofi") if pending_entry else None
+            tfi_val    = pending_entry.get("tfi") if pending_entry else None
+            trades.append(Trade(
+                direction=entry_side,
+                entry_px=entry_px,
+                exit_px=current_close_px,
+                size=current_close_sz,
+                closed_pnl=current_close_pnl,
+                ofi=ofi_val,
+                tfi=tfi_val,
+            ))
+        current_close_pnl = 0.0
+        current_close_px  = 0.0
+        current_close_sz  = 0.0
+        in_closing_event  = False
 
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
-            # Track last signal for annotation
             m = SIGNAL_RE.search(line)
             if m:
                 direction = m.group(1).strip()
@@ -66,28 +94,20 @@ def parse_log(path: Path) -> List[Trade]:
             pnl = float(pnl_s)
 
             if abs(pnl) < 1e-9:
-                # Opening fill — record as pending entry
+                # Opening fill — first flush any accumulated closing event
+                _flush_close()
                 pending_entry = {"side": side, "px": px, "sz": sz}
                 if last_signal:
                     pending_entry["ofi"] = last_signal[1]
                     pending_entry["tfi"] = last_signal[2]
             else:
-                # Closing fill — record trade
-                entry_px = pending_entry["px"] if pending_entry else px
-                entry_side = pending_entry.get("side", "BUY") if pending_entry else "BUY"
-                ofi = pending_entry.get("ofi") if pending_entry else None
-                tfi = pending_entry.get("tfi") if pending_entry else None
-                trades.append(Trade(
-                    direction=entry_side,
-                    entry_px=entry_px,
-                    exit_px=px,
-                    size=sz,
-                    closed_pnl=pnl,
-                    ofi=ofi,
-                    tfi=tfi,
-                ))
-                pending_entry = None
+                # Closing partial fill — accumulate
+                in_closing_event = True
+                current_close_pnl += pnl
+                current_close_px   = px    # last fill price as exit price
+                current_close_sz  += sz
 
+    _flush_close()  # flush any final open closing event
     return trades
 
 
