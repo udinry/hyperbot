@@ -603,7 +603,7 @@ async def _handle_book(
     use_ioc    = spread_bps > config.WIDE_SPREAD_BPS or config.ENTRY_IOC
 
     # IOC slippage buffer: 50 ticks above best_ask / below best_bid to handle stale L2 cache.
-    _IOC_SLIP = 50 * config.PRICE_TICK
+    _IOC_SLIP = 200 * config.PRICE_TICK
 
     # --- Entry signals (only when running with room to add) ---
     if state.is_running():
