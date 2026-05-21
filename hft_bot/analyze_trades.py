@@ -10,11 +10,23 @@ Opening fills (closedPnl == 0.0) are tracked for entry price context.
 """
 from __future__ import annotations
 
+import math
 import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
+
+
+def wilson_ci(wins: int, n: int, z: float = 1.645) -> tuple:
+    """Wilson score confidence interval for a proportion. Default z=1.645 → 90% CI."""
+    if n == 0:
+        return (0.0, 1.0)
+    p = wins / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
 
 
 FILL_RE = re.compile(
@@ -129,7 +141,13 @@ def print_report(trades: List[Trade], scale: float = 1.0) -> None:
     print("=" * 60)
     print(f"  TRADE ANALYSIS  ({len(trades)} completed round-trips)")
     print("=" * 60)
+    be_wr = abs(avg_loss) / (abs(avg_win) + abs(avg_loss)) * 100 if (avg_win and avg_loss) else 0
+    ci_lo, ci_hi = wilson_ci(len(wins), len(trades))
+
     print(f"  Win rate    : {wr:.1f}%  ({len(wins)}W / {len(losses)}L)")
+    print(f"  90% CI WR   : [{ci_lo*100:.1f}%, {ci_hi*100:.1f}%]  (need >{be_wr:.1f}% to profit)")
+    edge_verdict = "EDGE" if ci_lo * 100 > be_wr else ("no edge" if ci_hi * 100 < be_wr else "inconclusive")
+    print(f"  Verdict     : {edge_verdict}  (n={len(trades)}, need ~25+ for significance)")
     print(f"  Total P&L   : {total_pnl:+.4f}$  (×{scale:.0f} → {total_pnl * scale:+.2f}$)")
     print(f"  Avg win     : {avg_win:+.4f}$")
     print(f"  Avg loss    : {avg_loss:+.4f}$")
@@ -137,7 +155,7 @@ def print_report(trades: List[Trade], scale: float = 1.0) -> None:
     if avg_loss != 0:
         print(f"  Win/loss R  : {abs(avg_win / avg_loss):.2f}:1")
     print()
-    print(f"  Break-even WR needed: {abs(avg_loss) / (abs(avg_win) + abs(avg_loss)) * 100:.1f}%" if (avg_win and avg_loss) else "")
+    print(f"  Break-even WR needed: {be_wr:.1f}%" if be_wr else "")
     print()
     print(f"  {'#':>3}  {'Dir':>4}  {'Entry':>10}  {'Exit':>10}  {'PnL':>9}  {'OFI':>7}  {'TFI':>7}")
     print(f"  {'-'*3}  {'-'*4}  {'-'*10}  {'-'*10}  {'-'*9}  {'-'*7}  {'-'*7}")
