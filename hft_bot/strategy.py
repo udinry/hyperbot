@@ -378,6 +378,13 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
         _suppress("atr")
         return None
 
+    # Count OFI threshold crossings that passed pre-gate filters (cooldown/spread/ATR).
+    # These are the candidates that enter the quality-gate funnel.
+    if ofi >= config.OFI_BUY_THRESHOLD:
+        _suppress("candidate_buy")
+    elif ofi <= config.OFI_SELL_THRESHOLD:
+        _suppress("candidate_sell")
+
     # 2.6. Microprice gate — instantaneous book-pressure confirmation.
     # microprice > mid = bid-heavy book = buy pressure. Contradicting microprice
     # means OFI signal and current book snapshot disagree; skip.
@@ -503,6 +510,7 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     state._last_signal_dir  = candidate  # type: ignore[attr-defined]
     state._persist_buy  = 0  # type: ignore[attr-defined]
     state._persist_sell = 0  # type: ignore[attr-defined]
+    _suppress("signal_fired")
 
     tfi_str  = f"{tfi:+.3f}"  if tfi      is not None else "N/A"
     qi_str   = f"{qi:.3f}"   if qi       is not None else "N/A"
