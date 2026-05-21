@@ -20,7 +20,7 @@ from typing import List, Optional
 FILL_RE = re.compile(
     r"FILL \| oid=(\d+) side=(\w+) px=([\d.]+) sz=([\d.]+) closedPnl=([+-]?[\d.]+)"
 )
-SIGNAL_RE = re.compile(r"\|(BUY |SELL) signal \| OFI=([+-]?[\d.]+) TFI=([+-]?[\d.N/A]+)")
+SIGNAL_RE = re.compile(r"\|\s*(BUY|SELL)\s+signal\s*\|\s*OFI=([+-]?[\d.]+)(?:\s+TFI=([+-]?[\d.]+))?")
 
 
 @dataclass
@@ -78,8 +78,8 @@ def parse_log(path: Path) -> List[Trade]:
                 except ValueError:
                     ofi = None
                 try:
-                    tfi = float(m.group(3))
-                except ValueError:
+                    tfi = float(m.group(3)) if m.group(3) is not None else None
+                except (ValueError, TypeError):
                     tfi = None
                 last_signal = (direction, ofi, tfi)
                 continue
