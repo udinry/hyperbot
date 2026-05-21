@@ -684,6 +684,17 @@ async def _handle_book(
                     reduce_only=True, force_ioc=True,
                 )
 
+    # --- Break-even trailing stop ---
+    trail_pct = config.SL_TRAIL_TRIGGER_PCT
+    if (trail_pct > 0 and mid > 0 and state.entry_price is not None
+            and state.inventory_btc != 0.0 and not state.sl_trailed):
+        entry = state.entry_price
+        inv = state.inventory_btc
+        if (inv > 0 and mid >= entry * (1 + trail_pct)) or \
+           (inv < 0 and mid <= entry * (1 - trail_pct)):
+            state.sl_trailed = True
+            await executor.trail_sl_to_breakeven()
+
 
 def _handle_order_update(state: BotState, update: dict) -> None:
     try:

@@ -158,6 +158,10 @@ QUEUE_IMBAL_THRESHOLD: float = float(os.getenv("QUEUE_IMBAL_THRESHOLD", "0.55"))
 # Prevents stale directional exposure when TP/SL are far from current price.
 MAX_POSITION_HOLD_MS: int = int(os.getenv("MAX_POSITION_HOLD_MS", "0"))
 
+# Once unrealized profit reaches this fraction of notional, move SL to entry (break-even).
+# 0 = disabled. 0.005 = trail after 0.5% profit (half the TP distance).
+SL_TRAIL_TRIGGER_PCT: float = float(os.getenv("SL_TRAIL_TRIGGER_PCT", "0.0"))
+
 # Minimum 1-min ATR ($/min) required to enter a trade. 0 = disabled.
 # Prevents entries during dead-flat markets where the TP target is unreachable.
 ATR_MIN_TRADE_USD: float = float(os.getenv("ATR_MIN_TRADE_USD", "0.0"))

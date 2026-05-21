@@ -338,6 +338,46 @@ class OrderExecutor:
             logger.error("SL placement failed: %s", exc, exc_info=True)
             return None
 
+    async def trail_sl_to_breakeven(self) -> None:
+        """Cancel existing SL and re-arm it at entry price (break-even) to lock in profit.
+        Leaves the TP resting — only the SL trigger moves."""
+        if config.OBSERVER_MODE:
+            return
+        inv = self.state.inventory_btc
+        entry = self.state.entry_price
+        if entry is None or abs(inv) < 1e-8:
+            return
+        async with self._sl_lock:
+            if self.state.sl_oid is not None:
+                await self._cancel_sl(self.state.sl_oid)
+                self.state.sl_oid = None
+            sz = _round_size(abs(inv))
+            if sz < 0.001:
+                return
+            is_long = inv > 0
+            is_buy_sl = not is_long
+            trigger_px = _round_price(entry)
+            logger.info(
+                "Trailing SL to break-even | %s %.4f BTC @ trigger $%.2f",
+                "BUY" if is_buy_sl else "SELL", sz, trigger_px,
+            )
+            def _place():
+                return self.exchange.order(
+                    config.COIN, is_buy_sl, sz, trigger_px,
+                    order_type={"trigger": {"triggerPx": trigger_px, "isMarket": True, "tpsl": "sl"}},
+                    reduce_only=True,
+                )
+            try:
+                result = await self._run_in_executor(_place)
+                oid = self._extract_oid(result, "be_sl")
+                if oid:
+                    self.state.sl_oid = oid
+                    logger.info("Break-even SL placed oid=%d trigger=%.2f", oid, trigger_px)
+                else:
+                    logger.warning("Break-even SL: no oid in response | %s", result)
+            except Exception as exc:
+                logger.error("Break-even SL placement failed: %s", exc, exc_info=True)
+
     async def place_take_profit(self, size: float, entry_price: float, is_long: bool) -> Optional[int]:
         """Place a reduce-only ALO (post-only, earns maker rebate) take-profit limit order."""
         if config.OBSERVER_MODE:

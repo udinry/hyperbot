@@ -162,6 +162,7 @@ class BotState:
     # --- Exchange-side stop-loss and take-profit resting orders ---
     sl_oid: Optional[int] = None
     tp_oid: Optional[int] = None
+    sl_trailed: bool = False  # True once SL has been moved to break-even this position
 
     # --- Position open timestamp (ms) for time-limit exit ---
     position_open_ms: Optional[int] = None
@@ -252,6 +253,7 @@ class BotState:
             self.inventory_btc = 0.0
             self.entry_price = None
             self.position_open_ms = None
+            self.sl_trailed = False
         elif abs(prev_inv) < 1e-8 and abs(self.inventory_btc) > 1e-8:
             self.position_open_ms = int(time.monotonic_ns() // 1_000_000)
 
