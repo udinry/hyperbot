@@ -52,6 +52,20 @@ logger = logging.getLogger("ofi_strategy")
 
 _MIN_DEPTH = 1e-6
 
+# Gate suppression counters — reset and logged periodically by stats_logger.
+_gate_counts: dict[str, int] = {}
+
+
+def _suppress(gate: str) -> None:
+    _gate_counts[gate] = _gate_counts.get(gate, 0) + 1
+
+
+def get_and_reset_gate_stats() -> dict[str, int]:
+    """Return current suppression counts and reset to zero."""
+    counts = dict(_gate_counts)
+    _gate_counts.clear()
+    return counts
+
 
 # ---------------------------------------------------------------------------
 # Level-OFI helpers
@@ -344,7 +358,7 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     if block_start >= 0 and block_end >= 0 and block_start < block_end:
         hour_utc = datetime.now(timezone.utc).hour
         if block_start <= hour_utc < block_end:
-            logger.debug("Signal suppressed: time gate (hour=%d UTC, block=%d-%d)", hour_utc, block_start, block_end)
+            _suppress("time_block")
             return None
 
     # 2. Spread liquidity filter
@@ -353,7 +367,7 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     if spread is not None and mid and mid > 0:
         spread_bps = spread / mid * 10_000
         if spread_bps > config.MAX_SPREAD_BPS:
-            logger.debug("Signal suppressed: spread=%.1fbps > max=%.1fbps", spread_bps, config.MAX_SPREAD_BPS)
+            _suppress("spread")
             return None
 
     # 2.5. ATR minimum gate — require minimum realized volatility to trade.
@@ -361,7 +375,7 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     atr = compute_atr(state)
     atr_min = getattr(config, "ATR_MIN_TRADE_USD", 0.0)
     if atr is not None and atr_min > 0 and atr < atr_min:
-        logger.debug("Signal suppressed: ATR=%.1f$ < min %.1f$", atr, atr_min)
+        _suppress("atr")
         return None
 
     # 2.6. Microprice gate — instantaneous book-pressure confirmation.
@@ -371,10 +385,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     _mid = state.book.mid_price()
     if mp is not None and _mid is not None and _mid > 0:
         if ofi >= config.OFI_BUY_THRESHOLD and mp < _mid:
-            logger.debug("Signal suppressed: BUY but microprice=%.2f < mid=%.2f (ask-heavy)", mp, _mid)
+            _suppress("microprice_buy")
             return None
         if ofi <= config.OFI_SELL_THRESHOLD and mp > _mid:
-            logger.debug("Signal suppressed: SELL but microprice=%.2f > mid=%.2f (bid-heavy)", mp, _mid)
+            _suppress("microprice_sell")
             return None
 
     # 2.7. Queue imbalance gate — L1 bid/ask size ratio confirmation.
@@ -383,10 +397,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     qi_thresh = getattr(config, "QUEUE_IMBAL_THRESHOLD", 0.55)
     if qi is not None:
         if ofi >= config.OFI_BUY_THRESHOLD and qi < (1.0 - qi_thresh):
-            logger.debug("Signal suppressed: BUY but qi=%.3f < %.2f (ask-heavy L1)", qi, 1.0 - qi_thresh)
+            _suppress("queue_imbal_buy")
             return None
         if ofi <= config.OFI_SELL_THRESHOLD and qi > qi_thresh:
-            logger.debug("Signal suppressed: SELL but qi=%.3f > %.2f (bid-heavy L1)", qi, qi_thresh)
+            _suppress("queue_imbal_sell")
             return None
 
     # 2.8. VWAP deviation gate — recent trades must be on the signal side of mid.
@@ -394,10 +408,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     vwap_dev = compute_vwap_deviation(state)
     if vwap_dev is not None:
         if ofi >= config.OFI_BUY_THRESHOLD and vwap_dev < 0:
-            logger.debug("Signal suppressed: BUY but VWAP=%.3f below mid (sell pressure)", vwap_dev)
+            _suppress("vwap_buy")
             return None
         if ofi <= config.OFI_SELL_THRESHOLD and vwap_dev > 0:
-            logger.debug("Signal suppressed: SELL but VWAP=%.3f above mid (buy pressure)", vwap_dev)
+            _suppress("vwap_sell")
             return None
 
     # 3. TFI confirmation gate.
@@ -409,10 +423,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
         ofi_wants_buy  = ofi >= config.OFI_BUY_THRESHOLD
         ofi_wants_sell = ofi <= config.OFI_SELL_THRESHOLD
         if ofi_wants_buy  and tfi <= min_tfi:
-            logger.debug("Signal suppressed: OFI=+buy but TFI=%.3f (≤ min %.2f)", tfi, min_tfi)
+            _suppress("tfi_buy")
             return None
         if ofi_wants_sell and tfi >= -min_tfi:
-            logger.debug("Signal suppressed: OFI=-sell but TFI=%.3f (≥ -min %.2f)", tfi, min_tfi)
+            _suppress("tfi_sell")
             return None
 
     # 4. Short-term price trend gate.
@@ -423,10 +437,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
         ofi_wants_buy_trend  = ofi >= config.OFI_BUY_THRESHOLD
         ofi_wants_sell_trend = ofi <= config.OFI_SELL_THRESHOLD
         if ofi_wants_buy_trend  and trend < 0:
-            logger.debug("Signal suppressed: BUY but trend=%.2f$ (falling price)", trend)
+            _suppress("trend_buy")
             return None
         if ofi_wants_sell_trend and trend > 0:
-            logger.debug("Signal suppressed: SELL but trend=%.2f$ (rising price)", trend)
+            _suppress("trend_sell")
             return None
 
     # 5a. 5-min momentum gate: OFI impulse must be backed by 5-min price trend.
@@ -434,10 +448,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     if trend_5m is not None and mid:
         min_trend_5m = getattr(config, "TREND_5MIN_PCT", 0.001) * mid
         if ofi >= config.OFI_BUY_THRESHOLD and trend_5m < min_trend_5m:
-            logger.debug("Signal suppressed: BUY 5m_trend=%+.1f$ < %.1f$", trend_5m, min_trend_5m)
+            _suppress("trend5m_buy")
             return None
         if ofi <= config.OFI_SELL_THRESHOLD and trend_5m > -min_trend_5m:
-            logger.debug("Signal suppressed: SELL 5m_trend=%+.1f$ < %.1f$", trend_5m, -min_trend_5m)
+            _suppress("trend5m_sell")
             return None
 
     # 4.5. Funding rate bias gate.
@@ -448,11 +462,11 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     if fr != 0.0 and fr_thresh > 0:
         if ofi >= config.OFI_BUY_THRESHOLD and fr > fr_thresh:
             if ofi < config.OFI_BUY_THRESHOLD + 0.10:
-                logger.debug("Signal suppressed: BUY but funding=%.5f%% > threshold (longs crowded)", fr * 100)
+                _suppress("funding_buy")
                 return None
         elif ofi <= config.OFI_SELL_THRESHOLD and fr < -fr_thresh:
             if ofi > config.OFI_SELL_THRESHOLD - 0.10:
-                logger.debug("Signal suppressed: SELL but funding=%.5f%% < -threshold (shorts crowded)", fr * 100)
+                _suppress("funding_sell")
                 return None
 
     # 5. Persistence counter
@@ -482,7 +496,7 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     last_dir = getattr(state, "_last_signal_dir", None)
     if last_dir is not None and last_dir != candidate:
         if now_ms - state.last_signal_ms < config.SIGNAL_COOLDOWN_MS * 2:
-            logger.debug("Signal suppressed: anti-flap (last=%s, now=%s)", last_dir, candidate)
+            _suppress("anti_flap")
             return None
 
     state.last_signal_ms = now_ms

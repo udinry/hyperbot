@@ -82,7 +82,7 @@ from hyperliquid.utils.constants import MAINNET_API_URL, TESTNET_API_URL
 
 from executor import OrderExecutor
 from state import BotState, BotStatus, Level, OrderBook
-from strategy import evaluate_exit_signal, evaluate_signal, ingest_trade, process_book_update, compute_dynamic_tp_pct
+from strategy import evaluate_exit_signal, evaluate_signal, ingest_trade, process_book_update, compute_dynamic_tp_pct, get_and_reset_gate_stats
 
 _exchange = None
 _account_address: str = ""   # master account address used for all reads
@@ -541,6 +541,8 @@ async def ws_health_monitor(
 
 
 async def stats_logger(state: BotState) -> None:
+    _gate_log_interval = 600  # log gate suppression counts every 10 minutes
+    _last_gate_log = 0.0
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(2)
         summary = state.summary()
@@ -549,6 +551,14 @@ async def stats_logger(state: BotState) -> None:
             scaled_upnl = state.unrealized_pnl_usd() * config.LIVE_TEST_SCALE
             summary += f" [×{config.LIVE_TEST_SCALE:.0f} → realPnL≈{scaled_pnl:+.2f}$ uPnL≈{scaled_upnl:+.2f}$]"
         logger.info("STATE | %s", summary)
+
+        now = time.monotonic()
+        if now - _last_gate_log >= _gate_log_interval:
+            counts = get_and_reset_gate_stats()
+            if counts:
+                parts = " | ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+                logger.info("GATE STATS (10m) | %s", parts)
+            _last_gate_log = now
 
 
 async def main_loop(
