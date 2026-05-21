@@ -364,7 +364,12 @@ async def exchange_sync(state: BotState, executor: "OrderExecutor") -> None:
     If exchange shows a position the bot doesn't know about, update state and arm SL.
     If exchange shows no position but bot thinks it has one, clear bot state."""
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
-        await asyncio.sleep(30)
+        for _ in range(30):
+            if state.status in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+                break
+            await asyncio.sleep(1)
+        if state.status in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+            break
         if config.OBSERVER_MODE or not _wallet:
             continue
         loop = asyncio.get_running_loop()
@@ -435,14 +440,22 @@ async def funding_monitor(state: BotState) -> None:
                 state.funding_rate = rate
         except Exception as exc:
             logger.debug("funding_monitor: %s", exc)
-        await asyncio.sleep(900)
+        for _ in range(900):
+            if state.status in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+                break
+            await asyncio.sleep(1)
     logger.info("Funding monitor exiting")
 
 
 async def position_sizer(state: BotState, info, wallet_address: str) -> None:
     """Background task: re-check account balance every 5 minutes and resize."""
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
-        await asyncio.sleep(300)
+        for _ in range(300):
+            if state.status in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+                break
+            await asyncio.sleep(1)
+        if state.status in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
+            break
         await _refresh_order_size(state, info, wallet_address)
     logger.info("Position sizer exiting")
 
