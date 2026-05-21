@@ -150,14 +150,20 @@ def print_report(trades: List[Trade], scale: float = 1.0) -> None:
 
 
 if __name__ == "__main__":
-    log_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "bot.log"
+    args = sys.argv[1:]
     scale = 10.0
     from_trade = 1
-    for i, arg in enumerate(sys.argv):
-        if arg == "--scale" and i + 1 < len(sys.argv):
-            scale = float(sys.argv[i + 1])
-        if arg == "--from-trade" and i + 1 < len(sys.argv):
-            from_trade = int(sys.argv[i + 1])
+    positional: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--scale" and i + 1 < len(args):
+            scale = float(args[i + 1]); i += 2
+        elif args[i] == "--from-trade" and i + 1 < len(args):
+            from_trade = int(args[i + 1]); i += 2
+        else:
+            positional.append(args[i]); i += 1
+
+    log_path = Path(positional[0]) if positional else Path(__file__).parent / "bot.log"
 
     if not log_path.exists():
         print(f"Log file not found: {log_path}")
