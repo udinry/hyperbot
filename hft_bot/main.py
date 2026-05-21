@@ -610,6 +610,7 @@ async def _handle_book(
     if ofi is None:
         return
     state.latest_ofi = ofi
+    state.ofi_recent.append(ofi)
 
     spread     = book.spread() or 0.0
     mid        = book.mid_price() or 0.0

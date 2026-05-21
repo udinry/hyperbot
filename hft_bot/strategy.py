@@ -385,6 +385,19 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     elif ofi <= config.OFI_SELL_THRESHOLD:
         _suppress("candidate_sell")
 
+    # OFI exhaustion gate: suppress if strong opposite OFI in last N ticks before signal.
+    # Catches local price extremes where OFI briefly spikes but immediately reverts.
+    _ex_ticks = getattr(config, "OFI_CONSISTENCY_TICKS", 5)
+    _ex_thresh = getattr(config, "OFI_CONSISTENCY_THRESHOLD", 0.80)
+    _recent = list(state.ofi_recent)[-_ex_ticks:] if len(state.ofi_recent) >= _ex_ticks else []
+    if _recent:
+        if ofi <= config.OFI_SELL_THRESHOLD and max(_recent) > _ex_thresh:
+            _suppress("ofi_exhaustion_sell")
+            return None
+        if ofi >= config.OFI_BUY_THRESHOLD and min(_recent) < -_ex_thresh:
+            _suppress("ofi_exhaustion_buy")
+            return None
+
     # 2.6. Microprice gate — instantaneous book-pressure confirmation.
     # microprice > mid = bid-heavy book = buy pressure. Contradicting microprice
     # means OFI signal and current book snapshot disagree; skip.

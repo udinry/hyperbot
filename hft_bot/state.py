@@ -114,6 +114,8 @@ class BotState:
 
     # Latest normalised OFI in [-1, +1]; updated on every book tick.
     latest_ofi: Optional[float] = None
+    # Ring buffer of the most recent normalised OFI values (for exhaustion gate).
+    ofi_recent: Deque[float] = field(default_factory=lambda: deque(maxlen=20))
 
     # --- OFI rolling window ---
     # Each entry: (timestamp_ms, ofi_delta).  Pruned to OFI_WINDOW_MS.
