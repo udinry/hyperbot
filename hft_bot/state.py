@@ -211,6 +211,16 @@ class BotState:
                                size: float, closed_pnl: float) -> None:
         journal = Path(__file__).parent / "trades.csv"
         write_header = not journal.exists()
+        # Read last cumulative_pnl from CSV so it persists across restarts.
+        prev_cumulative = 0.0
+        if journal.exists():
+            try:
+                with open(journal, newline="") as _fh:
+                    rows = list(csv.reader(_fh))
+                if len(rows) > 1:
+                    prev_cumulative = float(rows[-1][-1])
+            except (ValueError, IndexError):
+                pass
         with open(journal, "a", newline="") as fh:
             w = csv.writer(fh)
             if write_header:
@@ -223,7 +233,7 @@ class BotState:
                 f"{exit_px:.2f}",
                 f"{size:.4f}",
                 f"{closed_pnl:.4f}",
-                f"{self.daily_pnl_usd + closed_pnl:.4f}",
+                f"{prev_cumulative + closed_pnl:.4f}",
             ])
 
     def record_fill(self, is_buy: bool, fill_px: float, fill_sz: float, closed_pnl: float) -> None:
