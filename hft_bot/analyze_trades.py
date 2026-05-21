@@ -152,13 +152,18 @@ def print_report(trades: List[Trade], scale: float = 1.0) -> None:
 if __name__ == "__main__":
     log_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "bot.log"
     scale = 10.0
+    from_trade = 1
     for i, arg in enumerate(sys.argv):
         if arg == "--scale" and i + 1 < len(sys.argv):
             scale = float(sys.argv[i + 1])
+        if arg == "--from-trade" and i + 1 < len(sys.argv):
+            from_trade = int(sys.argv[i + 1])
 
     if not log_path.exists():
         print(f"Log file not found: {log_path}")
         sys.exit(1)
 
     trades = parse_log(log_path)
+    if from_trade > 1:
+        trades = trades[from_trade - 1:]
     print_report(trades, scale=scale)
