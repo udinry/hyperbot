@@ -4,16 +4,31 @@ Hyperbot Telegram monitor -- always-on VPS service.
 Tails bot logs and sends instant alerts + hourly summaries.
 """
 import json
+import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
-TG_TOKEN = "8641349739:AAHaCA3IRlBJfmw0hBZuqHc2DJwallkyRTo"
-TG_CHAT  = "7164910940"
+# Load .env from repo root so this script works both directly and as a service.
+_env_path = Path(__file__).resolve().parents[1] / ".env"
+if _env_path.exists():
+    for _line in _env_path.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _, _v = _line.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip())
+
+TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TG_CHAT  = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+if not TG_TOKEN or not TG_CHAT:
+    sys.exit("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in .env")
 HL_API   = "https://api.hyperliquid.xyz/info"
 WALLET   = "0x70C780d4e1497598eEB0ae54CCA6011CD55FF89D"
 
