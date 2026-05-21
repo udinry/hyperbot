@@ -609,6 +609,7 @@ async def _handle_book(
     ofi = process_book_update(state, book)
     if ofi is None:
         return
+    state.latest_ofi = ofi
 
     spread     = book.spread() or 0.0
     mid        = book.mid_price() or 0.0

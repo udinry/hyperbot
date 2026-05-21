@@ -112,6 +112,9 @@ class BotState:
     daily_pnl_usd: float = 0.0
     session_start_ts: float = field(default_factory=time.time)
 
+    # Latest normalised OFI in [-1, +1]; updated on every book tick.
+    latest_ofi: Optional[float] = None
+
     # --- OFI rolling window ---
     # Each entry: (timestamp_ms, ofi_delta).  Pruned to OFI_WINDOW_MS.
     ofi_window: Deque[OFIEntry] = field(
@@ -280,6 +283,7 @@ class BotState:
     def summary(self) -> str:
         mid = self.mid_price()
         mid_str = f"{mid:.2f}" if mid else "N/A"
+        ofi_str = f" ofi={self.latest_ofi:+.3f}" if self.latest_ofi is not None else ""
         return (
             f"status={self.status.value} "
             f"inv={self.inventory_btc:+.4f}BTC "
@@ -289,4 +293,5 @@ class BotState:
             f"realPnL={self.daily_pnl_usd:+.2f}$ "
             f"fills={self.total_orders_filled} "
             f"open_orders={len(self.open_orders)}"
+            f"{ofi_str}"
         )
