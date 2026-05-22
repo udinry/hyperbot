@@ -204,13 +204,21 @@ if __name__ == "__main__":
         else:
             positional.append(args[i]); i += 1
 
-    log_path = Path(positional[0]) if positional else Path(__file__).parent / "bot.log"
+    if positional:
+        log_paths = [Path(positional[0])]
+    else:
+        base = Path(__file__).parent / "bot.log"
+        older = base.with_suffix(".log.1")
+        log_paths = ([older] if older.exists() else []) + [base]
 
-    if not log_path.exists():
-        print(f"Log file not found: {log_path}")
-        sys.exit(1)
+    for lp in log_paths:
+        if not lp.exists():
+            print(f"Log file not found: {lp}")
+            sys.exit(1)
 
-    trades = parse_log(log_path)
+    trades: List[Trade] = []
+    for lp in log_paths:
+        trades.extend(parse_log(lp))
     if from_trade > 1:
         trades = trades[from_trade - 1:]
     print_report(trades, scale=scale)
