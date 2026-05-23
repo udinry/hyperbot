@@ -194,10 +194,32 @@ def print_report(trades: List[Trade], scale: float = 1.0) -> None:
     print("=" * 60)
 
 
+def parse_csv(path: Path) -> List[Trade]:
+    """Read trades from trades.csv (persistent journal, survives log rotation).
+    Returns trades with entry/exit/pnl populated; OFI/TFI/QI/VWAP are N/A."""
+    import csv as _csv
+    trades = []
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in _csv.DictReader(fh):
+            try:
+                pnl = float(row["closed_pnl"])
+                trades.append(Trade(
+                    direction="BUY" if row["direction"] == "LONG" else "SELL",
+                    entry_px=float(row["entry_px"]),
+                    exit_px=float(row["exit_px"]),
+                    size=float(row["size_btc"]),
+                    closed_pnl=pnl,
+                ))
+            except (KeyError, ValueError):
+                continue
+    return trades
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     scale = 10.0
     from_trade = 1
+    use_csv = False
     positional: list[str] = []
     i = 0
     while i < len(args):
@@ -205,22 +227,32 @@ if __name__ == "__main__":
             scale = float(args[i + 1]); i += 2
         elif args[i] == "--from-trade" and i + 1 < len(args):
             from_trade = int(args[i + 1]); i += 2
+        elif args[i] == "--csv":
+            use_csv = True; i += 1
         else:
             positional.append(args[i]); i += 1
 
-    if positional:
-        log_paths = [Path(positional[0])]
-    else:
-        base = Path(__file__).parent / "bot.log"
-        older = base.with_suffix(".log.1")
-        log_paths = ([older] if older.exists() else []) + [base]
-
-    for lp in log_paths:
-        if not lp.exists():
-            print(f"Log file not found: {lp}")
+    if use_csv:
+        csv_path = Path(positional[0]) if positional else Path(__file__).parent / "trades.csv"
+        if not csv_path.exists():
+            print(f"CSV not found: {csv_path}")
             sys.exit(1)
+        trades = parse_csv(csv_path)
+    else:
+        if positional:
+            log_paths = [Path(positional[0])]
+        else:
+            base = Path(__file__).parent / "bot.log"
+            older = base.with_suffix(".log.1")
+            log_paths = ([older] if older.exists() else []) + [base]
 
-    trades = parse_log(log_paths)
+        for lp in log_paths:
+            if not lp.exists():
+                print(f"Log file not found: {lp}")
+                sys.exit(1)
+
+        trades = parse_log(log_paths)
+
     if from_trade > 1:
         trades = trades[from_trade - 1:]
     print_report(trades, scale=scale)
