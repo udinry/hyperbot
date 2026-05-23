@@ -153,6 +153,10 @@ FUNDING_BIAS_THRESHOLD: float = float(os.getenv("FUNDING_BIAS_THRESHOLD", "0.000
 # for BUY signals, and (1-threshold) for SELL signals.
 QUEUE_IMBAL_THRESHOLD: float = float(os.getenv("QUEUE_IMBAL_THRESHOLD", "0.55"))
 
+# Maximum VWAP deviation ($) above mid allowed for BUY signals. When recent tape has
+# been bid up far above fair value, entering long risks mean reversion. inf = disabled.
+VWAP_BUY_MAX_DEV: float = float(os.getenv("VWAP_BUY_MAX_DEV", "inf"))
+
 # Maximum position hold time in milliseconds. 0 = disabled.
 # OFI signal half-life is 10-30s — after this limit, close at market regardless of P&L.
 # Prevents stale directional exposure when TP/SL are far from current price.

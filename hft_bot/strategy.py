@@ -409,6 +409,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
         if ofi <= config.OFI_SELL_THRESHOLD and vwap_dev > 0:
             _suppress("vwap_sell")
             return None
+        vwap_max_buy = getattr(config, "VWAP_BUY_MAX_DEV", float("inf"))
+        if ofi >= config.OFI_BUY_THRESHOLD and vwap_dev > vwap_max_buy:
+            _suppress("vwap_buy")
+            return None
 
     # 3. TFI confirmation gate.
     # When no trades have been seen yet (startup or dead market), skip this
