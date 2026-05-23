@@ -253,13 +253,16 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
         raw = (balance * config.POSITION_RISK_PCT * config.LEVERAGE) / mid
         # Safety cap at 0.1 BTC (~$7700 notional) — sanity limit only, not risk limit.
         new_size = round(max(0.001, min(0.1, raw)), 3)
+        # Circuit breaker scales with position size: 2× one full stop-loss.
+        new_max_loss = round(2 * config.STOP_LOSS_PCT * new_size * mid, 2)
         if new_size != state.order_size_btc:
             logger.info(
-                "Position resize | balance=$%.2f mid=%.2f → %.4f BTC (was %.4f)",
-                balance, mid, new_size, state.order_size_btc,
+                "Position resize | balance=$%.2f mid=%.2f → %.4f BTC (was %.4f) | circuit_breaker=$%.2f",
+                balance, mid, new_size, state.order_size_btc, new_max_loss,
             )
             state.order_size_btc    = new_size
             state.max_inventory_btc = new_size  # inventory limit tracks order size
+        state.max_daily_loss_usd = new_max_loss
         new_tp = compute_dynamic_tp_pct(state)
         if new_tp != state.dynamic_tp_pct:
             logger.info("ATR-adaptive TP: %.4f → %.4f (%.2f%%)", state.dynamic_tp_pct, new_tp, new_tp * 100)
