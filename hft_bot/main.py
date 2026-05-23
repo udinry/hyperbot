@@ -300,9 +300,11 @@ def _fetch_exchange_position() -> Optional[dict]:
     return None
 
 
-async def _cancel_stale_reduce_only_orders(executor: "OrderExecutor") -> None:
-    """On startup, cancel any lingering reduce-only BTC orders left from a previous session.
-    Without this, every restart leaves an orphaned SL on the exchange."""
+async def _startup_reconcile(state: BotState, executor: "OrderExecutor") -> None:
+    """On startup: inspect stale reduce-only orders, detect trail SL state,
+    cancel all stale orders, sync position, and re-arm SL/TP correctly.
+    If trail SL was active before restart (trigger ≈ entry_price), sl_trailed
+    is restored and SL is re-armed at entry rather than at original stop_loss_pct level."""
     import urllib.request as _ur, json as _json
     loop = asyncio.get_running_loop()
 
@@ -317,49 +319,66 @@ async def _cancel_stale_reduce_only_orders(executor: "OrderExecutor") -> None:
         with _ur.urlopen(req, timeout=5) as resp:
             return _json.loads(resp.read())
 
+    stale = []
     try:
         orders = await loop.run_in_executor(None, _fetch_open)
         stale = [o for o in orders if o.get("coin") == config.COIN and o.get("reduceOnly")]
-        if stale:
-            logger.warning(
-                "Startup: cancelling %d stale reduce-only order(s) from previous session", len(stale)
-            )
-            for o in stale:
-                await executor._cancel_sl(int(o["oid"]))
-        else:
-            logger.info("Startup: no stale reduce-only orders found")
     except Exception as exc:
-        logger.warning("_cancel_stale_reduce_only_orders failed: %s", exc)
+        logger.warning("Startup: failed to fetch open orders: %s", exc)
 
-
-async def _reconcile_position(
-    state: BotState, executor: "OrderExecutor"
-) -> None:
-    """On startup, sync bot inventory with any existing exchange position and arm SL.
-    Uses direct REST (not SDK) to avoid SDK assetPositions bug."""
-    loop = asyncio.get_running_loop()
+    pos = None
     try:
         pos = await loop.run_in_executor(None, _fetch_exchange_position)
-        if pos:
-            state.inventory_btc = pos["szi"]
-            state.entry_price   = pos["entry_px"]
-            logger.info(
-                "Startup reconcile | synced %.4f BTC @ entry %.2f (unrealPnL=%.2f$)",
-                pos["szi"], pos["entry_px"] or 0, pos["unreal"],
-            )
-            if pos["entry_px"]:
-                sl_oid = await executor.place_stop_loss(
-                    abs(pos["szi"]), pos["entry_px"], pos["szi"] > 0
-                )
-                state.sl_oid = sl_oid
-                tp_oid = await executor.place_take_profit(
-                    abs(pos["szi"]), pos["entry_px"], pos["szi"] > 0
-                )
-                state.tp_oid = tp_oid
-        else:
-            logger.info("Startup reconcile | no open %s position", config.COIN)
     except Exception as exc:
-        logger.warning("Position reconciliation failed: %s", exc)
+        logger.warning("Startup: failed to fetch exchange position: %s", exc)
+
+    # Detect trail SL before cancelling: trail trigger ≈ entry_price (within 0.1%).
+    # Original SL is ~0.5% away from entry — unambiguous separation.
+    trail_was_active = False
+    if pos and pos.get("entry_px") and stale:
+        entry_px = pos["entry_px"]
+        for o in stale:
+            try:
+                trigger = float(o["triggerPx"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if abs(trigger - entry_px) / entry_px < 0.001:
+                trail_was_active = True
+                logger.info(
+                    "Startup: trail SL detected (trigger=%.2f ≈ entry=%.2f) — restoring sl_trailed",
+                    trigger, entry_px,
+                )
+                break
+
+    if stale:
+        logger.warning("Startup: cancelling %d stale reduce-only order(s) from previous session", len(stale))
+        for o in stale:
+            await executor._cancel_sl(int(o["oid"]))
+    else:
+        logger.info("Startup: no stale reduce-only orders found")
+
+    if not pos:
+        logger.info("Startup reconcile | no open %s position", config.COIN)
+        return
+
+    state.inventory_btc = pos["szi"]
+    state.entry_price   = pos["entry_px"]
+    logger.info(
+        "Startup reconcile | synced %.4f BTC @ entry %.2f (unrealPnL=%.2f$) trail_restored=%s",
+        pos["szi"], pos["entry_px"] or 0, pos["unreal"], trail_was_active,
+    )
+    if not pos["entry_px"]:
+        return
+
+    if trail_was_active:
+        state.sl_trailed = True
+        await executor.trail_sl_to_breakeven()
+    else:
+        sl_oid = await executor.place_stop_loss(abs(pos["szi"]), pos["entry_px"], pos["szi"] > 0)
+        state.sl_oid = sl_oid
+
+    tp_oid = await executor.place_take_profit(abs(pos["szi"]), pos["entry_px"], pos["szi"] > 0)
+    state.tp_oid = tp_oid
 
 
 async def exchange_sync(state: BotState, executor: "OrderExecutor") -> None:
@@ -770,8 +789,7 @@ async def run() -> None:
     _info_rest = Info(base_url=config.API_URL, skip_ws=True)
     if not config.OBSERVER_MODE and _wallet:
         await _refresh_order_size(state, _info_rest, _account_address)
-        await _cancel_stale_reduce_only_orders(executor)
-        await _reconcile_position(state, executor)
+        await _startup_reconcile(state, executor)
     logger.info("Order size: %.4f BTC", state.order_size_btc)
 
     ws_mgr = WSManager(queue, loop)
