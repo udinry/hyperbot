@@ -298,6 +298,18 @@ class BotState:
         mid = self.mid_price()
         mid_str = f"{mid:.2f}" if mid else "N/A"
         ofi_str = f" ofi={self.latest_ofi:+.3f}" if self.latest_ofi is not None else ""
+        prot_str = ""
+        if self.inventory_btc != 0.0 and self.entry_price is not None:
+            entry = self.entry_price
+            is_long = self.inventory_btc > 0
+            sl_trigger = entry if self.sl_trailed else (
+                entry * (1 - config.STOP_LOSS_PCT) if is_long else entry * (1 + config.STOP_LOSS_PCT)
+            )
+            tp_target = (
+                entry * (1 + self.dynamic_tp_pct) if is_long else entry * (1 - self.dynamic_tp_pct)
+            )
+            trail_flag = "T" if self.sl_trailed else ""
+            prot_str = f" sl={sl_trigger:.0f}{trail_flag} tp={tp_target:.0f}"
         return (
             f"status={self.status.value} "
             f"inv={self.inventory_btc:+.4f}BTC "
@@ -307,5 +319,6 @@ class BotState:
             f"realPnL={self.daily_pnl_usd:+.2f}$ "
             f"fills={self.total_orders_filled} "
             f"open_orders={len(self.open_orders)}"
+            f"{prot_str}"
             f"{ofi_str}"
         )
