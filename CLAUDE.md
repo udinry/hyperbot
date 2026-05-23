@@ -42,33 +42,45 @@ hyperbot/
 
 **TFI** (Trade Flow Imbalance) from live `trades` WebSocket:
 - `(buy_vol − sell_vol) / total_vol` over the OFI window
-- Requires `|TFI| > MIN_TFI_STRENGTH (0.10)` to confirm signal
+- Requires `|TFI| > MIN_TFI_STRENGTH (0.40)` to confirm signal
 
-**6-gate signal filter** (in order):
-1. **Cooldown** — min 1500ms between any two signals
-2. **Spread filter** — suppress if spread > MAX_SPREAD_BPS
-3. **TFI gate** — trade flow must agree with OFI direction (|TFI| > 0.10)
-4. **Trend gate** — BUY suppressed if price falling over last 3s; SELL suppressed if rising
-5. **Persistence** — OFI must exceed threshold for 2 consecutive book ticks
-6. **Anti-flap** — opposite direction blocked for 2× cooldown after last signal
+**13-gate signal filter** (in order, GATE STATS key in parentheses):
+1. **Cooldown** — min SIGNAL_COOLDOWN_MS (3000ms) between any two signals
+2. **Time-of-day** — suppress during TRADE_BLOCK_UTC_START..END hours (`time_block`)
+3. **Spread** — suppress if spread > MAX_SPREAD_BPS (`spread`)
+4. **ATR minimum** — suppress in flat markets if 1-min ATR < ATR_MIN_TRADE_USD=12 (`atr`)
+5. **OFI exhaustion** — suppress if strong opposite OFI (>0.80) in last 5 ticks (`ofi_exhaustion_buy/sell`)
+6. **Microprice** — suppress if book-pressure microprice contradicts OFI direction (`microprice_buy/sell`)
+7. **VWAP directional** — suppress BUY if recent trades drove price below mid; SELL if above (`vwap_buy/sell`)
+8. **VWAP overextension** — suppress BUY if VWAP deviation > VWAP_BUY_MAX_DEV (disabled, inf) (`vwap_buy`)
+9. **TFI confirmation** — |TFI| must exceed MIN_TFI_STRENGTH=0.40 (`tfi_buy/sell`)
+10. **3s trend** — BUY suppressed if price falling over PRICE_TREND_WINDOW_MS; SELL if rising (`trend_buy/sell`)
+11. **5-min momentum** — OFI must align with 5-min price trend > TREND_5MIN_PCT=0.08% (`trend5m_buy/sell`)
+12. **Funding bias** — high positive funding requires 0.10 higher OFI to buy (`funding_buy/sell`)
+13. **Persistence** — OFI must exceed threshold for OFI_PERSISTENCE_TICKS=1 consecutive ticks; anti-flap blocks opposite direction for 2× cooldown (`anti_flap`)
 
 ### Current Config (`config.py` defaults)
 
-| Parameter | Value | Notes |
+| Parameter | Live Value | Notes |
 |---|---|---|
-| `ORDER_SIZE_BTC` | 0.01 | Starting default; overridden at runtime by `_refresh_order_size` |
-| `POSITION_RISK_PCT` | 0.48 | fraction of balance used as margin → `size = balance×0.48×leverage/mid` |
-| `OFI_BUY_THRESHOLD` | 0.70 | normalised OFI in [−1,+1] |
-| `OFI_SELL_THRESHOLD` | −0.70 | |
-| `OFI_LEVELS` | 2 | top N book levels |
-| `OFI_WINDOW_MS` | 400 | rolling accumulation window |
-| `OFI_PERSISTENCE_TICKS` | 2 | consecutive ticks above threshold |
-| `SIGNAL_COOLDOWN_MS` | 1500 | min ms between signals |
-| `MIN_TFI_STRENGTH` | 0.10 | min |TFI| for confirmation |
-| `PRICE_TREND_WINDOW_MS` | 3000 | look-back for trend gate |
-| `POSITION_RISK_PCT` | 0.48 | fraction of balance used as margin per trade for dynamic sizing |
-| `WIDE_SPREAD_BPS` | 5.0 | switch IOC above this spread |
-| `LIMIT_ORDER_TIMEOUT_MS` | 800 | ALO auto-cancel after this long |
+| `ORDER_SIZE_BTC` | 0.001 | Floor; overridden at runtime by `_refresh_order_size` |
+| `POSITION_RISK_PCT` | 0.007 | Min-size mode; full-size (0.48) requires user approval |
+| `OFI_BUY_THRESHOLD` | 0.60 | normalised OFI in [−1,+1] |
+| `OFI_SELL_THRESHOLD` | −0.60 | |
+| `OFI_LEVELS` | 5 | top N book levels |
+| `OFI_PERSISTENCE_TICKS` | 1 | consecutive ticks above threshold |
+| `SIGNAL_COOLDOWN_MS` | 3000 | min ms between signals |
+| `MIN_TFI_STRENGTH` | 0.40 | min |TFI| for confirmation |
+| `PRICE_TREND_WINDOW_MS` | 30000 | 30s look-back for 3s trend gate |
+| `WIDE_SPREAD_BPS` | 50 | switch IOC above this spread |
+| `LIMIT_ORDER_TIMEOUT_MS` | 2000 | ALO auto-cancel after this long |
+| `ENTRY_IOC` | true | forces IOC for all entries |
+| `ATR_MIN_TRADE_USD` | 12 | min 1-min ATR ($) to allow entry |
+| `TAKE_PROFIT_PCT` | 0.010 | 1% TP |
+| `STOP_LOSS_PCT` | 0.005 | 0.5% SL |
+| `SL_TRAIL_TRIGGER_PCT` | 0.005 | move SL to BE after 0.5% profit |
+| `TREND_5MIN_PCT` | 0.0008 | min 5-min price move to allow signal |
+| `VWAP_BUY_MAX_DEV` | inf | disabled; set to ~12 if high-VWAP-BUY loss pattern confirmed |
 | `PRICE_TICK` | 0.1 | $0.10 tick size on HL BTC perp |
 
 ### Current Risk (`risk.yaml`)
