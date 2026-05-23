@@ -144,18 +144,6 @@ def compute_microprice(book) -> Optional[float]:
     return (ask_px * bid_sz + bid_px * ask_sz) / total
 
 
-def compute_queue_imbalance(book) -> Optional[float]:
-    """L1 queue imbalance: bid_sz / (bid_sz + ask_sz).
-    > 0.5 → bid-heavy (buy pressure); < 0.5 → ask-heavy (sell pressure)."""
-    if not book.bids or not book.asks:
-        return None
-    bid_sz = book.bids[0].size
-    ask_sz = book.asks[0].size
-    total = bid_sz + ask_sz
-    if total < 1e-9:
-        return None
-    return bid_sz / total
-
 
 def compute_price_trend(state: BotState) -> Optional[float]:
     """
@@ -411,18 +399,6 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
             _suppress("microprice_sell")
             return None
 
-    # 2.7. Queue imbalance gate — L1 bid/ask size ratio confirmation.
-    # Requires book to be directionally skewed (>55% one side) to avoid 50/50 entries.
-    qi = compute_queue_imbalance(state.book)
-    qi_thresh = getattr(config, "QUEUE_IMBAL_THRESHOLD", 0.55)
-    if qi is not None:
-        if ofi >= config.OFI_BUY_THRESHOLD and qi < (1.0 - qi_thresh):
-            _suppress("queue_imbal_buy")
-            return None
-        if ofi <= config.OFI_SELL_THRESHOLD and qi > qi_thresh:
-            _suppress("queue_imbal_sell")
-            return None
-
     # 2.8. VWAP deviation gate — recent trades must be on the signal side of mid.
     # VWAP > mid means buyers paid above mid (buy pressure). Graceful: skip if no data.
     vwap_dev = compute_vwap_deviation(state)
@@ -526,15 +502,14 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     _suppress("signal_fired")
 
     tfi_str  = f"{tfi:+.3f}"  if tfi      is not None else "N/A"
-    qi_str   = f"{qi:.3f}"   if qi       is not None else "N/A"
     vwap_str = f"{vwap_dev:+.2f}$" if vwap_dev is not None else "N/A"
     fr_str   = f"{fr*100:.4f}%" if fr != 0.0 else "0"
     if candidate == "buy":
-        logger.info("BUY  signal | OFI=%+.4f TFI=%s QI=%s VWAP=%s FR=%s spread=%.2f$",
-                    ofi, tfi_str, qi_str, vwap_str, fr_str, spread or 0)
+        logger.info("BUY  signal | OFI=%+.4f TFI=%s VWAP=%s FR=%s spread=%.2f$",
+                    ofi, tfi_str, vwap_str, fr_str, spread or 0)
     else:
-        logger.info("SELL signal | OFI=%+.4f TFI=%s QI=%s VWAP=%s FR=%s spread=%.2f$",
-                    ofi, tfi_str, qi_str, vwap_str, fr_str, spread or 0)
+        logger.info("SELL signal | OFI=%+.4f TFI=%s VWAP=%s FR=%s spread=%.2f$",
+                    ofi, tfi_str, vwap_str, fr_str, spread or 0)
 
     return candidate
 
