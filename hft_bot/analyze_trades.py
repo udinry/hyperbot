@@ -53,11 +53,14 @@ class Trade:
     vwap: Optional[float] = None
 
 
-def parse_log(path: Path) -> List[Trade]:
-    """Parse bot.log into completed round-trips.
-    Partial fills (same oid, same closing event) are aggregated into one trade.
-    A trade closes when the next opening fill (closedPnl==0) appears after
-    at least one closing fill has been accumulated."""
+def parse_log(paths) -> List[Trade]:
+    """Parse one or more log files into completed round-trips.
+    State is shared across files so a trade that opens in one log and
+    closes in the next is correctly attributed.
+    Partial fills (same oid, same closing event) are aggregated into one trade."""
+    if isinstance(paths, Path):
+        paths = [paths]
+
     trades: List[Trade] = []
     last_signal: Optional[tuple] = None  # (direction, ofi, tfi, qi, vwap)
     pending_entry: Optional[dict] = None  # {side, px, sz, ofi, tfi, qi, vwap}
@@ -91,54 +94,55 @@ def parse_log(path: Path) -> List[Trade]:
         current_close_sz  = 0.0
         in_closing_event  = False
 
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            m = SIGNAL_RE.search(line)
-            if m:
-                direction = m.group(1).strip()
-                try:
-                    ofi = float(m.group(2))
-                except ValueError:
-                    ofi = None
-                try:
-                    tfi = float(m.group(3)) if m.group(3) is not None else None
-                except (ValueError, TypeError):
-                    tfi = None
-                try:
-                    qi = float(m.group(4)) if m.group(4) is not None else None
-                except (ValueError, TypeError):
-                    qi = None
-                try:
-                    vwap = float(m.group(5)) if m.group(5) is not None else None
-                except (ValueError, TypeError):
-                    vwap = None
-                last_signal = (direction, ofi, tfi, qi, vwap)
-                continue
+    for path in paths:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                m = SIGNAL_RE.search(line)
+                if m:
+                    direction = m.group(1).strip()
+                    try:
+                        ofi = float(m.group(2))
+                    except ValueError:
+                        ofi = None
+                    try:
+                        tfi = float(m.group(3)) if m.group(3) is not None else None
+                    except (ValueError, TypeError):
+                        tfi = None
+                    try:
+                        qi = float(m.group(4)) if m.group(4) is not None else None
+                    except (ValueError, TypeError):
+                        qi = None
+                    try:
+                        vwap = float(m.group(5)) if m.group(5) is not None else None
+                    except (ValueError, TypeError):
+                        vwap = None
+                    last_signal = (direction, ofi, tfi, qi, vwap)
+                    continue
 
-            m = FILL_RE.search(line)
-            if not m:
-                continue
+                m = FILL_RE.search(line)
+                if not m:
+                    continue
 
-            oid, side, px_s, sz_s, pnl_s = m.groups()
-            px  = float(px_s)
-            sz  = float(sz_s)
-            pnl = float(pnl_s)
+                oid, side, px_s, sz_s, pnl_s = m.groups()
+                px  = float(px_s)
+                sz  = float(sz_s)
+                pnl = float(pnl_s)
 
-            if abs(pnl) < 1e-9:
-                # Opening fill — first flush any accumulated closing event
-                _flush_close()
-                pending_entry = {"side": side, "px": px, "sz": sz}
-                if last_signal:
-                    pending_entry["ofi"]  = last_signal[1]
-                    pending_entry["tfi"]  = last_signal[2]
-                    pending_entry["qi"]   = last_signal[3] if len(last_signal) > 3 else None
-                    pending_entry["vwap"] = last_signal[4] if len(last_signal) > 4 else None
-            else:
-                # Closing partial fill — accumulate
-                in_closing_event = True
-                current_close_pnl += pnl
-                current_close_px   = px    # last fill price as exit price
-                current_close_sz  += sz
+                if abs(pnl) < 1e-9:
+                    # Opening fill — first flush any accumulated closing event
+                    _flush_close()
+                    pending_entry = {"side": side, "px": px, "sz": sz}
+                    if last_signal:
+                        pending_entry["ofi"]  = last_signal[1]
+                        pending_entry["tfi"]  = last_signal[2]
+                        pending_entry["qi"]   = last_signal[3] if len(last_signal) > 3 else None
+                        pending_entry["vwap"] = last_signal[4] if len(last_signal) > 4 else None
+                else:
+                    # Closing partial fill — accumulate
+                    in_closing_event = True
+                    current_close_pnl += pnl
+                    current_close_px   = px    # last fill price as exit price
+                    current_close_sz  += sz
 
     _flush_close()  # flush any final open closing event
     return trades
@@ -216,9 +220,7 @@ if __name__ == "__main__":
             print(f"Log file not found: {lp}")
             sys.exit(1)
 
-    trades: List[Trade] = []
-    for lp in log_paths:
-        trades.extend(parse_log(lp))
+    trades = parse_log(log_paths)
     if from_trade > 1:
         trades = trades[from_trade - 1:]
     print_report(trades, scale=scale)
