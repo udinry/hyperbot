@@ -112,6 +112,13 @@ class BotState:
     daily_pnl_usd: float = 0.0
     session_start_ts: float = field(default_factory=time.time)
 
+    # --- Trade journal accumulator (aggregates partial closing fills into one row) ---
+    _journal_entry_px: float = field(default=0.0, repr=False)
+    _journal_direction: str = field(default="", repr=False)
+    _journal_pnl_acc: float = field(default=0.0, repr=False)
+    _journal_exit_px: float = field(default=0.0, repr=False)
+    _journal_sz_acc: float = field(default=0.0, repr=False)
+
     # Latest normalised OFI in [-1, +1]; updated on every book tick.
     latest_ofi: Optional[float] = None
     # Ring buffer of the most recent normalised OFI values (for exhaustion gate).
@@ -239,10 +246,15 @@ class BotState:
     def record_fill(self, is_buy: bool, fill_px: float, fill_sz: float, closed_pnl: float) -> None:
         signed_sz = fill_sz if is_buy else -fill_sz
 
-        # Write closing fills to persistent trade journal before state changes
+        # Accumulate closing-fill data; flush to journal only when position reaches 0.
+        # Prevents multiple CSV rows when an SL/TP order fills in several partials.
         if abs(closed_pnl) > 1e-9 and self.entry_price is not None and self.inventory_btc != 0.0:
-            direction = "LONG" if self.inventory_btc > 0 else "SHORT"
-            self._append_trade_journal(direction, self.entry_price, fill_px, fill_sz, closed_pnl)
+            if abs(self._journal_pnl_acc) < 1e-12:
+                self._journal_entry_px  = self.entry_price
+                self._journal_direction = "LONG" if self.inventory_btc > 0 else "SHORT"
+            self._journal_pnl_acc += closed_pnl
+            self._journal_exit_px  = fill_px
+            self._journal_sz_acc  += fill_sz
 
         if self.inventory_btc == 0.0 or (self.inventory_btc > 0) == is_buy:
             if self.entry_price is None:
@@ -261,6 +273,13 @@ class BotState:
         self.inventory_btc += signed_sz
         if abs(self.inventory_btc) < 1e-8:
             self.inventory_btc = 0.0
+            if abs(self._journal_pnl_acc) > 1e-9:
+                self._append_trade_journal(
+                    self._journal_direction, self._journal_entry_px,
+                    self._journal_exit_px, self._journal_sz_acc, self._journal_pnl_acc,
+                )
+                self._journal_pnl_acc = 0.0
+                self._journal_sz_acc  = 0.0
             self.entry_price = None
             self.position_open_ms = None
             self.sl_trailed = False
