@@ -55,7 +55,7 @@ hyperbot/
 8. **VWAP overextension** — suppress BUY if VWAP deviation > VWAP_BUY_MAX_DEV (disabled, inf) (`vwap_buy`)
 9. **TFI confirmation** — |TFI| must exceed MIN_TFI_STRENGTH=0.40 (`tfi_buy/sell`)
 10. **3s trend** — BUY suppressed if price falling over PRICE_TREND_WINDOW_MS; SELL if rising (`trend_buy/sell`)
-11. **5-min momentum** — OFI must align with 5-min price trend > TREND_5MIN_PCT=0.08% (`trend5m_buy/sell`)
+11. **5-min momentum** — OFI must align with 5-min price trend > TREND_5MIN_PCT=0.04% (`trend5m_buy/sell`)
 12. **Funding bias** — high positive funding requires 0.10 higher OFI to buy (`funding_buy/sell`)
 13. **Persistence** — OFI must exceed threshold for OFI_PERSISTENCE_TICKS=1 consecutive ticks; anti-flap blocks opposite direction for 2× cooldown (`anti_flap`)
 
@@ -79,7 +79,7 @@ hyperbot/
 | `TAKE_PROFIT_PCT` | 0.010 | 1% TP |
 | `STOP_LOSS_PCT` | 0.005 | 0.5% SL |
 | `SL_TRAIL_TRIGGER_PCT` | 0.005 | move SL to BE after 0.5% profit |
-| `TREND_5MIN_PCT` | 0.0008 | min 5-min price move to allow signal |
+| `TREND_5MIN_PCT` | 0.0004 | min 5-min price move to allow signal |
 | `VWAP_BUY_MAX_DEV` | inf | disabled; set to ~12 if high-VWAP-BUY loss pattern confirmed |
 | `PRICE_TICK` | 0.1 | $0.10 tick size on HL BTC perp |
 
