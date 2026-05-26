@@ -12,6 +12,9 @@ venv/
 dist/
 build/
 
+# Nested repos / submodules managed separately
+hyperliquid-python-sdk/
+
 # Node (monoth_src has its own .gitignore)
 node_modules/
 

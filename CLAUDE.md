@@ -44,20 +44,21 @@ hyperbot/
 - `(buy_vol − sell_vol) / total_vol` over the OFI window
 - Requires `|TFI| > MIN_TFI_STRENGTH (0.40)` to confirm signal
 
-**13-gate signal filter** (in order, GATE STATS key in parentheses):
+**14-gate signal filter** (in order, GATE STATS key in parentheses):
 1. **Cooldown** — min SIGNAL_COOLDOWN_MS (3000ms) between any two signals
 2. **Time-of-day** — suppress during TRADE_BLOCK_UTC_START..END hours (`time_block`)
-3. **Spread** — suppress if spread > MAX_SPREAD_BPS (`spread`)
-4. **ATR minimum** — suppress in flat markets if 1-min ATR < ATR_MIN_TRADE_USD=12 (`atr`)
-5. **OFI exhaustion** — suppress if strong opposite OFI (>0.80) in last 5 ticks (`ofi_exhaustion_buy/sell`)
-6. **Microprice** — suppress if book-pressure microprice contradicts OFI direction (`microprice_buy/sell`)
-7. **VWAP directional** — suppress BUY if recent trades drove price below mid; SELL if above (`vwap_buy/sell`)
-8. **VWAP overextension** — suppress BUY if VWAP deviation > VWAP_BUY_MAX_DEV (disabled, inf) (`vwap_buy`)
-9. **TFI confirmation** — |TFI| must exceed MIN_TFI_STRENGTH=0.40 (`tfi_buy/sell`)
-10. **3s trend** — BUY suppressed if price falling over PRICE_TREND_WINDOW_MS; SELL if rising (`trend_buy/sell`)
-11. **5-min momentum** — OFI must align with 5-min price trend > TREND_5MIN_PCT=0.04% (`trend5m_buy/sell`)
-12. **Funding bias** — high positive funding requires 0.10 higher OFI to buy (`funding_buy/sell`)
-13. **Persistence** — OFI must exceed threshold for OFI_PERSISTENCE_TICKS=1 consecutive ticks; anti-flap blocks opposite direction for 2× cooldown (`anti_flap`)
+3. **Post-SL cooldown** — suppress for POST_SL_COOLDOWN_MS (30000ms) after a loss SL hit (`post_sl`)
+4. **Spread** — suppress if spread > MAX_SPREAD_BPS (`spread`)
+5. **ATR minimum** — suppress in flat markets if 1-min ATR < ATR_MIN_TRADE_USD=12 (`atr`)
+6. **OFI exhaustion** — suppress if strong opposite OFI (>0.80) in last 5 ticks (`ofi_exhaustion_buy/sell`)
+7. **Microprice** — suppress if book-pressure microprice contradicts OFI direction (`microprice_buy/sell`)
+8. **VWAP directional** — suppress BUY if recent trades drove price below mid; SELL if above (`vwap_buy/sell`)
+9. **VWAP overextension** — suppress BUY if VWAP deviation > VWAP_BUY_MAX_DEV (disabled, inf) (`vwap_buy`)
+10. **TFI confirmation** — |TFI| must exceed MIN_TFI_STRENGTH=0.40 (`tfi_buy/sell`)
+11. **3s trend** — BUY suppressed if price falling over PRICE_TREND_WINDOW_MS; SELL if rising (`trend_buy/sell`)
+12. **5-min momentum** — OFI must align with 5-min price trend > TREND_5MIN_PCT=0.04% (`trend5m_buy/sell`)
+13. **Funding bias** — high positive funding requires 0.10 higher OFI to buy (`funding_buy/sell`)
+14. **Persistence** — OFI must exceed threshold for OFI_PERSISTENCE_TICKS=1 consecutive ticks; anti-flap blocks opposite direction for 2× cooldown (`anti_flap`)
 
 ### Current Config (`config.py` defaults)
 
@@ -71,6 +72,7 @@ hyperbot/
 | `OFI_PERSISTENCE_TICKS` | 1 | consecutive ticks above threshold |
 | `SIGNAL_COOLDOWN_MS` | 3000 | min ms between signals |
 | `MIN_TFI_STRENGTH` | 0.40 | min |TFI| for confirmation |
+| `POST_SL_COOLDOWN_MS` | 30000 | suppress all signals for 30s after loss SL hit |
 | `PRICE_TREND_WINDOW_MS` | 30000 | 30s look-back for 3s trend gate |
 | `WIDE_SPREAD_BPS` | 50 | switch IOC above this spread |
 | `LIMIT_ORDER_TIMEOUT_MS` | 2000 | ALO auto-cancel after this long |

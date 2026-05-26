@@ -349,6 +349,13 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
             _suppress("time_block")
             return None
 
+    # 1.7. Post-SL cooldown: after a loss stop-loss, pause all entries briefly.
+    # Prevents chasing price immediately after a spike-slippage SL hit.
+    _post_sl_cd = getattr(config, "POST_SL_COOLDOWN_MS", 0)
+    if _post_sl_cd > 0 and now_ms - getattr(state, "last_sl_ms", 0) < _post_sl_cd:
+        _suppress("post_sl")
+        return None
+
     # 2. Spread liquidity filter
     spread = state.book.spread()
     mid    = state.book.mid_price()

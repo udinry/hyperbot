@@ -174,6 +174,9 @@ class BotState:
     # --- Position open timestamp (ms) for time-limit exit ---
     position_open_ms: Optional[int] = None
 
+    # --- Post-SL cooldown: ms timestamp of last loss stop-loss hit ---
+    last_sl_ms: int = 0
+
     # --- Exit signal cooldown (ms timestamp of last OFI-based exit) ---
     last_exit_ms: int = 0
 
@@ -278,6 +281,8 @@ class BotState:
                     self._journal_direction, self._journal_entry_px,
                     self._journal_exit_px, self._journal_sz_acc, self._journal_pnl_acc,
                 )
+                if self._journal_pnl_acc < -0.20:
+                    self.last_sl_ms = int(time.monotonic_ns() // 1_000_000)
                 self._journal_pnl_acc = 0.0
                 self._journal_sz_acc  = 0.0
             self.entry_price = None

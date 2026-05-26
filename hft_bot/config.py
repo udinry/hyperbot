@@ -166,6 +166,10 @@ MAX_POSITION_HOLD_MS: int = int(os.getenv("MAX_POSITION_HOLD_MS", "0"))
 # 0 = disabled. 0.005 = trail after 0.5% profit (half the TP distance).
 SL_TRAIL_TRIGGER_PCT: float = float(os.getenv("SL_TRAIL_TRIGGER_PCT", "0.0"))
 
+# Suppress all new signals for this many ms after a loss stop-loss (closed_pnl < -$0.20).
+# Prevents immediate re-entry after a hard SL hit (e.g. spike context). 0 = disabled.
+POST_SL_COOLDOWN_MS: int = int(os.getenv("POST_SL_COOLDOWN_MS", "0"))
+
 # Minimum 1-min ATR ($/min) required to enter a trade. 0 = disabled.
 # Prevents entries during dead-flat markets where the TP target is unreachable.
 ATR_MIN_TRADE_USD: float = float(os.getenv("ATR_MIN_TRADE_USD", "0.0"))
