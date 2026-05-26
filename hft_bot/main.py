@@ -339,8 +339,11 @@ async def _startup_reconcile(state: BotState, executor: "OrderExecutor") -> None
         entry_px = pos["entry_px"]
         for o in stale:
             try:
-                trigger = float(o["triggerPx"])
-            except (KeyError, TypeError, ValueError):
+                # openOrders API returns limitPx for all order types (trigger and limit alike)
+                trigger = float(o.get("triggerPx") or o.get("limitPx") or 0)
+            except (TypeError, ValueError):
+                continue
+            if trigger <= 0:
                 continue
             if abs(trigger - entry_px) / entry_px < 0.001:
                 trail_was_active = True
