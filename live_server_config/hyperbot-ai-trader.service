@@ -1,0 +1,17 @@
+[Unit]
+Description=Hyperbot AI Trader (Claude-operated, dry-run by default)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/hyperbot/ai_trader
+EnvironmentFile=/opt/hyperbot/.env
+# Dry-run by default. To go live, append --live to ExecStart AND set AI_LIVE opt-in.
+ExecStart=/opt/hyperbot/.venv/bin/python agent.py loop --interval 86400
+Restart=always
+RestartSec=120
+
+[Install]
+WantedBy=multi-user.target
