@@ -45,6 +45,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Deque, List, Optional, Tuple
 
+import clock
 import config
 from state import BotState, Level, OrderBook
 
@@ -127,7 +128,7 @@ def compute_ofi_delta(
 
 
 def _now_ms() -> int:
-    return int(time.monotonic_ns() // 1_000_000)
+    return clock.now_ms()
 
 
 def compute_microprice(book) -> Optional[float]:
@@ -242,20 +243,18 @@ def process_book_update(state: BotState, new_book: OrderBook) -> Optional[float]
             new_book.bids,  new_book.asks,
             config.OFI_LEVELS,
         )
-        state.ofi_window.append((now_ms, delta))
+        state.ofi_window.append(now_ms, delta)
 
     state.prev_bids = list(new_book.bids[: config.OFI_LEVELS])
     state.prev_asks = list(new_book.asks[: config.OFI_LEVELS])
     state.book = new_book
 
-    cutoff_ms = now_ms - config.OFI_WINDOW_MS
-    while state.ofi_window and state.ofi_window[0][0] < cutoff_ms:
-        state.ofi_window.popleft()
+    state.ofi_window.prune(now_ms - config.OFI_WINDOW_MS)
 
     if not state.ofi_window:
         return None
 
-    raw_ofi    = sum(d for _, d in state.ofi_window)
+    raw_ofi    = state.ofi_window.total
     spot_depth = max(_book_depth(new_book.bids, new_book.asks, config.OFI_LEVELS), _MIN_DEPTH)
     normalised = max(-1.0, min(1.0, raw_ofi / spot_depth))
 
@@ -271,36 +270,35 @@ def process_book_update(state: BotState, new_book: OrderBook) -> Optional[float]
 # ---------------------------------------------------------------------------
 
 def ingest_trade(state: BotState, trade: dict) -> None:
-    """Add an executed trade to the rolling window with price for VWAP computation."""
+    """Add an executed trade to the rolling window with price for VWAP computation.
+
+    Stamped with clock.now_ms() (arrival time), NOT the exchange's epoch-ms
+    "time" field.  The window prune compares against clock.now_ms(), and
+    comparing epoch timestamps to monotonic timestamps silently disabled
+    pruning entirely (the window became "last 2000 trades" instead of the
+    intended OFI_WINDOW_MS) — the original v3 TFI bug.
+    """
     try:
         side   = trade.get("side", "")
         sz     = float(trade.get("sz", 0))
         px     = float(trade.get("px", 0))
-        ts     = int(trade.get("time", _now_ms()))
         signed = sz if side == "B" else -sz
-        state.trade_window.append((ts, signed, px))
-    except Exception:
-        pass
+        state.trade_window.append(_now_ms(), signed, px)
+    except (ValueError, TypeError) as exc:
+        logger.warning("ingest_trade: malformed trade %s (%s)", trade, exc)
 
 
 def _prune_trade_window(state: BotState) -> None:
-    now_ms = _now_ms()
-    cutoff = now_ms - config.OFI_WINDOW_MS
-    while state.trade_window and state.trade_window[0][0] < cutoff:
-        state.trade_window.popleft()
+    state.trade_window.prune(_now_ms() - config.OFI_WINDOW_MS)
 
 
 def compute_tfi(state: BotState) -> Optional[float]:
     """Normalised Trade Flow Imbalance in [-1, +1] over OFI_WINDOW_MS."""
     _prune_trade_window(state)
-    if not state.trade_window:
+    w = state.trade_window
+    if not w or w.total_vol < 1e-9:
         return None
-    buy_vol  = sum(v for _, v, _ in state.trade_window if v > 0)
-    sell_vol = sum(-v for _, v, _ in state.trade_window if v < 0)
-    total    = buy_vol + sell_vol
-    if total < 1e-9:
-        return None
-    return (buy_vol - sell_vol) / total
+    return (w.buy_vol - w.sell_vol) / w.total_vol
 
 
 def compute_vwap_deviation(state: BotState) -> Optional[float]:
@@ -309,13 +307,10 @@ def compute_vwap_deviation(state: BotState) -> Optional[float]:
     Negative → recent trades below mid → sell pressure."""
     _prune_trade_window(state)
     mid = state.book.mid_price()
-    if not state.trade_window or mid is None:
+    w = state.trade_window
+    if not w or mid is None or w.total_vol < 1e-9:
         return None
-    total_vol = sum(abs(v) for _, v, _ in state.trade_window)
-    if total_vol < 1e-9:
-        return None
-    vwap = sum(abs(v) * px for _, v, px in state.trade_window) / total_vol
-    return vwap - mid
+    return w.px_vol / w.total_vol - mid
 
 
 # ---------------------------------------------------------------------------
@@ -336,8 +331,10 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
     """
     now_ms = _now_ms()
 
-    # 1. Global cooldown
+    # 1. Global cooldown + entry lockout (an entry order is resting/in flight)
     if now_ms - state.last_signal_ms < config.SIGNAL_COOLDOWN_MS:
+        return None
+    if now_ms < state.lockout_until_ms:
         return None
 
     # 1.5. Time-of-day gate — block during low-activity UTC hours (e.g. EU lull)
@@ -365,13 +362,21 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
             _suppress("spread")
             return None
 
-    # 2.5. ATR minimum gate — require minimum realized volatility to trade.
-    # Prevents entries during dead-flat markets where TP is nearly unreachable.
+    # 2.5. ATR band gate — require minimum realized volatility to trade
+    # (TP unreachable in dead-flat markets) AND suppress in spike regimes
+    # where 1-min ATR approaches the stop distance: when ATR is a large
+    # fraction of STOP_LOSS_PCT × mid, the SL sits inside ordinary noise and
+    # gets hunted, while OFI saturates on a depleted book.
     atr = compute_atr(state)
     atr_min = getattr(config, "ATR_MIN_TRADE_USD", 0.0)
-    if atr is not None and atr_min > 0 and atr < atr_min:
-        _suppress("atr")
-        return None
+    atr_max = getattr(config, "ATR_MAX_TRADE_USD", 0.0)
+    if atr is not None:
+        if atr_min > 0 and atr < atr_min:
+            _suppress("atr")
+            return None
+        if atr_max > 0 and atr > atr_max:
+            _suppress("atr_high_vol")
+            return None
 
     # Count OFI threshold crossings that passed pre-gate filters (cooldown/spread/ATR).
     # These are the candidates that enter the quality-gate funnel.
@@ -477,39 +482,34 @@ def evaluate_signal(state: BotState, ofi: float) -> Optional[str]:
                 return None
 
     # 5. Persistence counter
-    if not hasattr(state, "_persist_buy"):
-        state._persist_buy  = 0  # type: ignore[attr-defined]
-        state._persist_sell = 0  # type: ignore[attr-defined]
-
     candidate = None
     if ofi >= config.OFI_BUY_THRESHOLD and state.can_buy():
-        state._persist_buy  += 1  # type: ignore[attr-defined]
-        state._persist_sell  = 0  # type: ignore[attr-defined]
-        if state._persist_buy >= config.OFI_PERSISTENCE_TICKS:  # type: ignore[attr-defined]
+        state.persist_buy  += 1
+        state.persist_sell  = 0
+        if state.persist_buy >= config.OFI_PERSISTENCE_TICKS:
             candidate = "buy"
     elif ofi <= config.OFI_SELL_THRESHOLD and state.can_sell():
-        state._persist_sell += 1  # type: ignore[attr-defined]
-        state._persist_buy   = 0  # type: ignore[attr-defined]
-        if state._persist_sell >= config.OFI_PERSISTENCE_TICKS:  # type: ignore[attr-defined]
+        state.persist_sell += 1
+        state.persist_buy   = 0
+        if state.persist_sell >= config.OFI_PERSISTENCE_TICKS:
             candidate = "sell"
     else:
-        state._persist_buy  = 0  # type: ignore[attr-defined]
-        state._persist_sell = 0  # type: ignore[attr-defined]
+        state.persist_buy  = 0
+        state.persist_sell = 0
 
     if candidate is None:
         return None
 
     # 6. Anti-flap: block opposite direction for 2x cooldown after last signal
-    last_dir = getattr(state, "_last_signal_dir", None)
-    if last_dir is not None and last_dir != candidate:
+    if state.last_signal_dir is not None and state.last_signal_dir != candidate:
         if now_ms - state.last_signal_ms < config.SIGNAL_COOLDOWN_MS * 2:
             _suppress("anti_flap")
             return None
 
     state.last_signal_ms = now_ms
-    state._last_signal_dir  = candidate  # type: ignore[attr-defined]
-    state._persist_buy  = 0  # type: ignore[attr-defined]
-    state._persist_sell = 0  # type: ignore[attr-defined]
+    state.last_signal_dir = candidate
+    state.persist_buy  = 0
+    state.persist_sell = 0
     _suppress("signal_fired")
 
     tfi_str  = f"{tfi:+.3f}"  if tfi      is not None else "N/A"

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 import socket
@@ -20,7 +21,17 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or ""
+if not app.secret_key:
+    # Fail safe, not open: generate an ephemeral random key instead of the old
+    # guessable "dev-secret-change-me" default. Sessions won't survive a
+    # restart until FLASK_SECRET_KEY is set in the environment.
+    import secrets as _secrets
+    app.secret_key = _secrets.token_hex(32)
+    logging.getLogger(__name__).warning(
+        "FLASK_SECRET_KEY not set — using an ephemeral random key. "
+        "Set it in the environment so sessions survive restarts."
+    )
 app.config["PREFERRED_URL_SCHEME"] = "https"
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
@@ -332,8 +343,22 @@ def _load_users():
 
 
 def _save_user(username, password):
+    # Store a salted hash, never the plaintext password.
+    from werkzeug.security import generate_password_hash
     with open(USERS_PATH, "a", encoding="utf-8") as handle:
-        handle.write(f"{username}\t{password}\n")
+        handle.write(f"{username}\t{generate_password_hash(password)}\n")
+
+
+def _verify_password(stored, password):
+    """Verify against a werkzeug hash; falls back to constant-time comparison
+    for legacy plaintext rows so existing users keep working."""
+    if not stored:
+        return False
+    if stored.startswith(("pbkdf2:", "scrypt:", "argon2:")):
+        from werkzeug.security import check_password_hash
+        return check_password_hash(stored, password)
+    import hmac
+    return hmac.compare_digest(stored, password)
 
 
 def _clean_username(raw):
@@ -902,7 +927,7 @@ def login():
         if not username or not password:
             return redirect(url_for("login", error="Username and password are required."))
         users = _load_users()
-        if users.get(username) != password:
+        if not _verify_password(users.get(username), password):
             return redirect(url_for("login", error="Invalid username or password."))
         session["user"] = username
         return redirect(url_for("dashboard"))

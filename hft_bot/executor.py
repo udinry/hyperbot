@@ -28,8 +28,14 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
+import clock
 import config
 from state import BotState, BotStatus, OpenOrder
+
+try:
+    from hyperliquid.utils.types import Cloid
+except ImportError:          # SDK absent (pure backtest envs) — cloid disabled
+    Cloid = None
 
 logger = logging.getLogger("executor")
 
@@ -37,7 +43,7 @@ _POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hl_exec")
 
 
 def _now_ms() -> int:
-    return int(time.monotonic_ns() // 1_000_000)
+    return clock.now_ms()
 
 
 def _round_price(px: float) -> float:
@@ -63,12 +69,15 @@ class OrderExecutor:
         self._account_address = account_address
         self._sl_lock = asyncio.Lock()  # serialise concurrent _manage_stop_loss calls
         self._sl_tp_pending = False  # debounce: absorb burst partial-fills into one re-arm
+        self._close_lock = asyncio.Lock()  # one emergency close in flight at a time
+        self._last_close_ms = 0  # cool-off so the 100ms risk loop can't stack closes
 
     async def _run_in_executor(self, fn, *args):
         return await self.loop.run_in_executor(_POOL, fn, *args)
 
     def _make_cloid(self) -> str:
-        return str(uuid.uuid4())
+        # Hyperliquid cloid format: 0x + 32 hex chars (128 bits)
+        return "0x" + uuid.uuid4().hex
 
     async def place_limit_order(
         self,
@@ -110,6 +119,9 @@ class OrderExecutor:
         )
 
         def _place():
+            # cloid makes placement idempotent and recoverable: if the HTTP
+            # response is lost after the exchange accepted the order, the
+            # order can still be found/cancelled by our own client ID.
             return self.exchange.order(
                 config.COIN,
                 is_buy,
@@ -117,12 +129,13 @@ class OrderExecutor:
                 px,
                 order_type=order_type,
                 reduce_only=reduce_only,
+                cloid=Cloid.from_str(cloid) if Cloid else None,
             )
 
         try:
             result = await self._run_in_executor(_place)
         except Exception as exc:
-            logger.error("Order placement failed: %s", exc, exc_info=True)
+            logger.error("Order placement failed (cloid=%s): %s", cloid[:10], exc, exc_info=True)
             return None
 
         oid = self._extract_oid(result, cloid)
@@ -179,29 +192,41 @@ class OrderExecutor:
         await asyncio.gather(*[self.cancel_order(oid) for oid in oids], return_exceptions=True)
 
     async def emergency_close(self, reason: str) -> None:
-        pos = self.state.inventory_btc
-        if abs(pos) < 1e-6:
+        """Flatten the position at market. Idempotent: concurrent callers and
+        the 100ms risk loop re-firing before the WS fill lands are absorbed by
+        the lock + cool-off instead of stacking duplicate market_close calls."""
+        if self._close_lock.locked():
             return
+        async with self._close_lock:
+            if _now_ms() - self._last_close_ms < 2_000:
+                return   # a close is already in flight; wait for its fill
+            pos = self.state.inventory_btc
+            if abs(pos) < 1e-6:
+                return
+            self._last_close_ms = _now_ms()
 
-        logger.warning("EMERGENCY CLOSE | reason=%s | pos=%.4f BTC", reason, pos)
-        await self.cancel_all_orders()
-        await self._cancel_all_reduce_only()
-        self.state.sl_oid = None
-        self.state.tp_oid = None
+            logger.warning("EMERGENCY CLOSE | reason=%s | pos=%.4f BTC", reason, pos)
+            await self.cancel_all_orders()
+            await self._cancel_all_reduce_only()
+            self.state.sl_oid = None
+            self.state.tp_oid = None
 
-        if config.OBSERVER_MODE:
-            self.state.inventory_btc = 0.0
-            self.state.entry_price = None
-            return
+            if config.OBSERVER_MODE:
+                self.state.inventory_btc = 0.0
+                self.state.entry_price = None
+                return
 
-        def _market_close():
-            return self.exchange.market_close(config.COIN, slippage=0.01)
+            def _market_close():
+                return self.exchange.market_close(config.COIN, slippage=0.01)
 
-        try:
-            result = await self._run_in_executor(_market_close)
-            logger.warning("Emergency close result: %s", result)
-        except Exception as exc:
-            logger.critical("Emergency close FAILED: %s", exc, exc_info=True)
+            try:
+                result = await self._run_in_executor(_market_close)
+                logger.warning("Emergency close result: %s", result)
+            except Exception as exc:
+                logger.critical("Emergency close FAILED: %s", exc, exc_info=True)
+                # Allow an immediate retry by the risk monitor — do not let the
+                # cool-off mask a position that is still open and unprotected.
+                self._last_close_ms = 0
 
     async def set_leverage(self) -> None:
         if config.OBSERVER_MODE:
@@ -224,13 +249,16 @@ class OrderExecutor:
             side       = fill.get("side", "")
             is_buy     = side == "B"
             closed_pnl = float(fill.get("closedPnl", 0.0))
+            # closedPnl excludes fees — without this, realized losses are
+            # understated by the taker fee on every IOC/SL/emergency exit.
+            fee        = abs(float(fill.get("fee", 0.0)))
 
             logger.info(
-                "FILL | oid=%d side=%s px=%.2f sz=%.4f closedPnl=%.4f$",
-                oid, "BUY" if is_buy else "SELL", fill_px, fill_sz, closed_pnl,
+                "FILL | oid=%d side=%s px=%.2f sz=%.4f closedPnl=%.4f$ fee=%.4f$",
+                oid, "BUY" if is_buy else "SELL", fill_px, fill_sz, closed_pnl, fee,
             )
 
-            self.state.record_fill(is_buy, fill_px, fill_sz, closed_pnl)
+            self.state.record_fill(is_buy, fill_px, fill_sz, closed_pnl, fee=fee)
 
             order = self.state.open_orders.pop(oid, None)
             if order and order.cancel_task and not order.cancel_task.done():
@@ -298,6 +326,9 @@ class OrderExecutor:
                 return
             sl_oid = await self.place_stop_loss(abs(inv), entry, is_long=inv > 0)
             self.state.sl_oid = sl_oid
+        if sl_oid is None and not config.OBSERVER_MODE:
+            # Escalate: an unprotected position is worse than a taker fee.
+            await self.emergency_close("sl_placement_failed")
 
     async def place_stop_loss(self, size: float, entry_price: float, is_long: bool) -> Optional[int]:
         """Place a reduce-only stop-market order on the exchange."""
@@ -326,17 +357,22 @@ class OrderExecutor:
                 reduce_only=True,
             )
 
-        try:
-            result = await self._run_in_executor(_place)
-            oid = self._extract_oid(result, "sl")
-            if oid:
-                logger.info("Exchange SL placed oid=%d trigger=%.2f", oid, trigger_px)
-            else:
-                logger.warning("SL placement: no oid in response | %s", result)
-            return oid
-        except Exception as exc:
-            logger.error("SL placement failed: %s", exc, exc_info=True)
-            return None
+        # A position without a stop is the single worst state this bot can be
+        # in — retry with backoff (handles transient API/rate-limit failures)
+        # instead of giving up after one attempt.
+        for attempt in range(1, 4):
+            try:
+                result = await self._run_in_executor(_place)
+                oid = self._extract_oid(result, "sl")
+                if oid:
+                    logger.info("Exchange SL placed oid=%d trigger=%.2f", oid, trigger_px)
+                    return oid
+                logger.warning("SL placement attempt %d: no oid in response | %s", attempt, result)
+            except Exception as exc:
+                logger.error("SL placement attempt %d failed: %s", attempt, exc)
+            await asyncio.sleep(0.25 * attempt)
+        logger.critical("SL placement failed after 3 attempts — position is UNPROTECTED")
+        return None
 
     async def trail_sl_to_breakeven(self) -> None:
         """Cancel existing SL and re-arm it at entry price (break-even) to lock in profit.
@@ -444,6 +480,11 @@ class OrderExecutor:
             is_long = inv > 0
             sz = abs(inv)
             self.state.sl_oid = await self.place_stop_loss(sz, entry, is_long=is_long)
+            if self.state.sl_oid is None:
+                # Escalate: an unprotected position is worse than a taker fee.
+                # emergency_close uses _close_lock, never _sl_lock — no deadlock.
+                await self.emergency_close("sl_placement_failed")
+                return
             self.state.tp_oid = await self.place_take_profit(sz, entry, is_long=is_long)
 
     async def _cancel_sl(self, sl_oid: int) -> None:

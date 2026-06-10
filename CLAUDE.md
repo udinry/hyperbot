@@ -103,19 +103,24 @@ hyperbot/
 - SELL orders: limit = best_ask − $0.10
 - ALO fill detection via live trade stream: BUY fills when side='A' trade prints at ≤ limit
 
-### Backtested Performance (7-day candle backtest, 0.01 BTC)
+### Backtested Performance
 
-- **Signals**: ~104 over 7 days (~15/day), balanced buys/sells
-- **Accuracy T+1min**: 82.7%
-- **Best day**: +$13.91 | **All 5 sampled days**: profitable
-- **Max bad day**: −$5.00 (hard-capped by circuit breaker)
-- **ALO breakeven**: need $15.40 adverse move on $770 notional to lose (very wide buffer)
-- Period was May 2026, moderately bullish BTC — verify over more diverse market conditions
+> ⚠️ The previously quoted "82.7% T+1min over 7 days" described the bot
+> *before* the TFI clock-domain fix (see `hft_bot/IMPROVEMENTS.md` §1.1) and was
+> measured by the candle proxy (Mode A), not the live strategy. It no longer
+> describes this code. **Re-validate from scratch** with `backtest.py replay`
+> (exact code) and live paper/real-test sessions before trusting any number.
+> Note also that candle-backtest accuracy falls sharply with horizon
+> (~84% at T+1min → ~58% at T+3–5min), which is why `MAX_POSITION_HOLD_MS` now
+> defaults to 10 min — the OFI edge has a short half-life.
 
 ### Commands
 
 ```bash
 cd hft_bot
+
+# Unit tests (40 tests: clock fix, gates, fee-aware PnL, idempotent close)
+python -m pytest tests/
 
 # Live paper trade (no real orders, uses mainnet data)
 python paper_trader.py --duration 300
@@ -123,11 +128,15 @@ python paper_trader.py --duration 300
 # Record a session for replay backtest
 python paper_trader.py --record session.jsonl --duration 3600
 
-# Candle backtest (downloads fresh 7-day OHLCV from mainnet)
+# Candle backtest (downloads fresh 7-day OHLCV from mainnet) — INDICATIVE ONLY
 python backtest.py candles --days 7
 
-# Replay backtest (exact strategy on recorded data)
+# Replay backtest (exact live strategy on recorded data) — the number to trust
 python backtest.py replay session.jsonl
+
+# Scaled-down REAL trading on mainnet (0.001 BTC) to test fills; writes
+# real_test_report.{json,md} comparing actual vs projected-at-scale PnL
+REAL_TEST_MODE=1 python main.py
 
 # Live trading (requires PRIVATE_KEY in .env)
 python main.py
@@ -139,6 +148,9 @@ python main.py
 |---|---|
 | `PRIVATE_KEY` | Hyperliquid wallet key — **DO NOT EXPOSE** |
 | `HYPERLIQUID_API_URL` | Set to `https://api.hyperliquid.xyz` for mainnet |
+| `REAL_TEST_MODE` | `1` = trade real 0.001 BTC on mainnet + scaled PnL report |
+| `MAX_POSITION_HOLD_MS` | Close at market after N ms (default 600000 = 10 min) |
+| `ATR_MAX_TRADE_USD` | Suppress entries when 1-min ATR exceeds this (spike guard) |
 | `ORDER_SIZE_BTC` | Override position size (default 0.01) |
 | `OFI_BUY_THRESHOLD` | Override buy threshold (default 0.70) |
 | `LOG_LEVEL` | DEBUG for verbose tick logging |

@@ -47,6 +47,7 @@ import sys
 import time
 from typing import Optional
 
+import clock
 import config
 
 config.validate()
@@ -219,40 +220,62 @@ async def _refresh_order_size(state: BotState, info, wallet_address: str) -> Non
         mid = state.mid_price()
         if not mid or mid <= 0:
             return
-        # On HL, spot USDC IS the trading balance — perp accountValue is the subset
-        # locked as margin for open positions. Always fetch spot to get the true total.
-        import json as _json, urllib.request as _ur
-        def _spot():
-            payload = _json.dumps({"type": "spotClearinghouseState", "user": wallet_address}).encode()
-            req = _ur.Request(
-                config.API_URL.rstrip("/") + "/info",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with _ur.urlopen(req, timeout=5) as resp:
-                return _json.loads(resp.read())
-        spot_usdc = 0.0
-        try:
-            spot_data = await loop.run_in_executor(None, _spot)
-            for b in spot_data.get("balances", []):
-                if b.get("coin") == "USDC":
-                    spot_usdc = float(b.get("total", 0))
-                    break
-        except Exception as exc:
-            logger.warning("spot balance fetch failed: %s", exc)
-        balance = max(perp_equity, spot_usdc)
-        logger.debug("Balance: perp_equity=$%.2f spot_usdc=$%.2f → using $%.2f", perp_equity, spot_usdc, balance)
+        # Size against PERP equity only. Spot USDC is a separate balance on HL
+        # and cannot margin perp positions without an explicit transfer —
+        # sizing against max(perp, spot) produced orders the perp account
+        # could not actually margin.
+        balance = perp_equity
+        logger.debug("Balance: perp_equity=$%.2f", balance)
         if balance < 5.0:
-            logger.warning(
-                "Effective balance $%.2f too low to trade — fund the account on Hyperliquid",
-                balance,
-            )
+            # Check spot only to give the operator an actionable warning.
+            import json as _json, urllib.request as _ur
+            def _spot():
+                payload = _json.dumps({"type": "spotClearinghouseState", "user": wallet_address}).encode()
+                req = _ur.Request(
+                    config.API_URL.rstrip("/") + "/info",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with _ur.urlopen(req, timeout=5) as resp:
+                    return _json.loads(resp.read())
+            spot_usdc = 0.0
+            try:
+                spot_data = await loop.run_in_executor(None, _spot)
+                for b in spot_data.get("balances", []):
+                    if b.get("coin") == "USDC":
+                        spot_usdc = float(b.get("total", 0))
+                        break
+            except Exception as exc:
+                logger.warning("spot balance fetch failed: %s", exc)
+            if spot_usdc > 5.0:
+                logger.warning(
+                    "Perp equity $%.2f too low but $%.2f USDC sits in SPOT — "
+                    "transfer it to the perp account on Hyperliquid to trade",
+                    balance, spot_usdc,
+                )
+            else:
+                logger.warning(
+                    "Effective balance $%.2f too low to trade — fund the account on Hyperliquid",
+                    balance,
+                )
             return
         # margin = balance × risk_pct; notional = margin × leverage; btc = notional / mid
         raw = (balance * config.POSITION_RISK_PCT * config.LEVERAGE) / mid
         # Safety cap at 0.1 BTC (~$7700 notional) — sanity limit only, not risk limit.
         new_size = round(max(0.001, min(0.1, raw)), 3)
+        if config.REAL_TEST_MODE:
+            # Trade the exchange minimum, but remember what full size would
+            # have been so every P&L line can be projected at scale.
+            full_size = new_size
+            new_size = config.MIN_ORDER_SIZE_BTC
+            scale = max(1.0, full_size / new_size)
+            if abs(scale - state.live_test_scale) > 0.01:
+                logger.info(
+                    "REAL TEST MODE | trading %.3f BTC (full size would be %.3f) | scale ×%.1f",
+                    new_size, full_size, scale,
+                )
+                state.live_test_scale = scale
         # Circuit breaker scales with position size: 2× one full stop-loss.
         new_max_loss = round(2 * config.STOP_LOSS_PCT * new_size * mid, 2)
         if new_size != state.order_size_btc:
@@ -489,6 +512,9 @@ async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(0.1)
 
+        # "Daily" means per-UTC-day: reset the persisted ledger at midnight.
+        state.roll_daily_pnl_if_new_day()
+
         if state.inventory_btc != 0.0 and state.entry_price:
             unrealised     = state.unrealized_pnl_usd()
             position_value = abs(state.inventory_btc) * state.entry_price
@@ -507,8 +533,7 @@ async def risk_monitor(state: BotState, executor: OrderExecutor) -> None:
         max_hold_ms = getattr(config, "MAX_POSITION_HOLD_MS", 0)
         if (max_hold_ms > 0 and state.position_open_ms is not None
                 and state.inventory_btc != 0.0):
-            import time as _time
-            held_ms = int(_time.monotonic_ns() // 1_000_000) - state.position_open_ms
+            held_ms = clock.now_ms() - state.position_open_ms
             if held_ms >= max_hold_ms:
                 logger.warning(
                     "POSITION TIME LIMIT | held=%ds > %ds | closing at market",
@@ -550,7 +575,19 @@ async def ws_health_monitor(
         await asyncio.sleep(5)
 
         ws_mgr = ws_manager_holder[0]
-        if not ws_mgr.is_alive():
+        # A WS thread can be alive but wedged — no data is as bad as no socket.
+        # On mainnet the BTC book ticks many times per second; 20s of silence
+        # after the first snapshot means the feed is dead.
+        data_stale = (
+            state.last_book_arrival_ms > 0
+            and clock.now_ms() - state.last_book_arrival_ms > 20_000
+        )
+        if data_stale:
+            logger.warning(
+                "Book feed stale (%.0fs without an update) — forcing WS reconnect",
+                (clock.now_ms() - state.last_book_arrival_ms) / 1000,
+            )
+        if data_stale or not ws_mgr.is_alive():
             if state.ws_reconnect_count >= config.WS_MAX_RECONNECTS:
                 logger.critical("WS dead after %d reconnects — giving up", config.WS_MAX_RECONNECTS)
                 state.set_stopped()
@@ -569,6 +606,8 @@ async def ws_health_monitor(
             try:
                 new_mgr.start()
                 ws_manager_holder[0] = new_mgr
+                # Give the fresh connection a clean staleness window.
+                state.last_book_arrival_ms = clock.now_ms()
                 logger.info("WS reconnected successfully")
             except Exception as exc:
                 logger.error("WS reconnect failed: %s", exc, exc_info=True)
@@ -584,10 +623,10 @@ async def stats_logger(state: BotState) -> None:
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
         await asyncio.sleep(2)
         summary = state.summary()
-        if config.LIVE_TEST_SCALE != 1.0:
-            scaled_pnl = state.daily_pnl_usd * config.LIVE_TEST_SCALE
-            scaled_upnl = state.unrealized_pnl_usd() * config.LIVE_TEST_SCALE
-            summary += f" [×{config.LIVE_TEST_SCALE:.0f} → realPnL≈{scaled_pnl:+.2f}$ uPnL≈{scaled_upnl:+.2f}$]"
+        if state.live_test_scale != 1.0:
+            scaled_pnl = state.daily_pnl_usd * state.live_test_scale
+            scaled_upnl = state.unrealized_pnl_usd() * state.live_test_scale
+            summary += f" [×{state.live_test_scale:.0f} → realPnL≈{scaled_pnl:+.2f}$ uPnL≈{scaled_upnl:+.2f}$]"
         logger.info("STATE | %s", summary)
 
         now = time.monotonic()
@@ -604,6 +643,15 @@ async def main_loop(
     executor: OrderExecutor,
     queue: asyncio.Queue,
 ) -> None:
+    """Event pump with book conflation.
+
+    Books are *state*, not events: a stale snapshot describes a market that no
+    longer exists, so when a backlog builds up we keep only the newest book.
+    Fills/order-updates/trades are *events* with permanent consequences — every
+    one of them is processed, in order, before the book is evaluated. This
+    keeps fill handling from being stuck behind a burst of stale books and
+    stops the OFI window being smeared with old data carrying new timestamps.
+    """
     logger.info("Main event loop started")
 
     while state.status not in (BotStatus.STOPPED, BotStatus.CIRCUIT_BREAKER):
@@ -613,15 +661,30 @@ async def main_loop(
             logger.debug("Queue idle (no WS messages in 5s)")
             continue
 
-        if msg_type == _MSG_BOOK:
-            await _handle_book(state, executor, payload)
-        elif msg_type == _MSG_FILLS:
-            executor.handle_fill(payload)
-            logger.debug("State after fill: %s", state.summary())
-        elif msg_type == _MSG_ORDERS:
-            _handle_order_update(state, payload)
-        elif msg_type == _MSG_TRADE:
-            ingest_trade(state, payload)
+        latest_book: Optional[OrderBook] = None
+        conflated = 0
+        while True:    # drain the backlog without yielding
+            if msg_type == _MSG_BOOK:
+                if latest_book is not None:
+                    conflated += 1
+                latest_book = payload
+            elif msg_type == _MSG_FILLS:
+                executor.handle_fill(payload)
+                logger.debug("State after fill: %s", state.summary())
+            elif msg_type == _MSG_ORDERS:
+                _handle_order_update(state, payload)
+            elif msg_type == _MSG_TRADE:
+                ingest_trade(state, payload)
+            try:
+                msg_type, payload = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        if conflated:
+            logger.debug("Conflated %d stale book snapshot(s)", conflated)
+        if latest_book is not None:
+            state.last_book_arrival_ms = clock.now_ms()
+            await _handle_book(state, executor, latest_book)
 
     logger.info("Main event loop exiting (status=%s)", state.status.value)
 
@@ -660,8 +723,13 @@ async def _handle_book(
                     price = (best_bid.price + config.PRICE_TICK) if best_bid else (best_ask.price - config.PRICE_TICK)
                     if price >= best_ask.price:
                         price = best_ask.price - config.PRICE_TICK
-                await executor.place_limit_order(is_buy=True, price=price, size=state.order_size_btc, spread=spread, force_ioc=use_ioc)
-                state.last_signal_ms = int(time.monotonic_ns() // 1_000_000) + config.LIMIT_ORDER_TIMEOUT_MS
+                # Lockout is set BEFORE the order task runs, so a second signal
+                # cannot fire while this one's HTTP round-trip is in flight.
+                state.lockout_until_ms = clock.now_ms() + config.LIMIT_ORDER_TIMEOUT_MS
+                asyncio.create_task(executor.place_limit_order(
+                    is_buy=True, price=price, size=state.order_size_btc,
+                    spread=spread, force_ioc=use_ioc,
+                ))
 
             elif signal == "sell":
                 best_bid = book.best_bid()
@@ -674,8 +742,11 @@ async def _handle_book(
                     price = (best_ask.price - config.PRICE_TICK) if best_ask else (best_bid.price + config.PRICE_TICK)
                     if price <= best_bid.price:
                         price = best_bid.price + config.PRICE_TICK
-                await executor.place_limit_order(is_buy=False, price=price, size=state.order_size_btc, spread=spread, force_ioc=use_ioc)
-                state.last_signal_ms = int(time.monotonic_ns() // 1_000_000) + config.LIMIT_ORDER_TIMEOUT_MS
+                state.lockout_until_ms = clock.now_ms() + config.LIMIT_ORDER_TIMEOUT_MS
+                asyncio.create_task(executor.place_limit_order(
+                    is_buy=False, price=price, size=state.order_size_btc,
+                    spread=spread, force_ioc=use_ioc,
+                ))
 
     # --- Exit signals (when holding a position, check OFI for early close) ---
     elif state.status == BotStatus.PAUSED_INVENTORY:
@@ -688,26 +759,25 @@ async def _handle_book(
         if exit_sig is not None:
             sz = abs(state.inventory_btc)
             # Block re-evaluation until fill arrives — prevents double-exit race condition.
-            _now_ms = int(time.monotonic_ns() // 1_000_000)
-            state.last_exit_ms = _now_ms + config.LIMIT_ORDER_TIMEOUT_MS
+            state.last_exit_ms = clock.now_ms() + config.LIMIT_ORDER_TIMEOUT_MS
             if exit_sig == "sell":  # close long — force IOC reduce-only sell
                 best_bid = book.best_bid()
                 if best_bid is None:
                     return
                 price = best_bid.price - _IOC_SLIP
-                await executor.place_limit_order(
+                asyncio.create_task(executor.place_limit_order(
                     is_buy=False, price=price, size=sz, spread=spread,
                     reduce_only=True, force_ioc=True,
-                )
+                ))
             elif exit_sig == "buy":  # close short — force IOC reduce-only buy
                 best_ask = book.best_ask()
                 if best_ask is None:
                     return
                 price = best_ask.price + _IOC_SLIP
-                await executor.place_limit_order(
+                asyncio.create_task(executor.place_limit_order(
                     is_buy=True, price=price, size=sz, spread=spread,
                     reduce_only=True, force_ioc=True,
-                )
+                ))
 
     # --- Break-even trailing stop ---
     trail_pct = config.SL_TRAIL_TRIGGER_PCT
@@ -719,6 +789,71 @@ async def _handle_book(
            (inv < 0 and mid <= entry * (1 - trail_pct)):
             state.sl_trailed = True
             await executor.trail_sl_to_breakeven()
+
+
+def write_real_test_report(state: BotState) -> None:
+    """Session report for REAL_TEST_MODE: actual vs projected-at-scale P&L.
+
+    Fees/rebates are proportional to size, so they scale linearly. Queue
+    position and book impact do not — the projection is honest for fees and
+    optimistic for fills, which is stated in the report itself.
+    """
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+
+    scale = state.live_test_scale
+    dur_s = max(1.0, time.time() - state.session_start_ts)
+    fill_rate = (state.total_orders_filled / state.total_orders_placed * 100
+                 if state.total_orders_placed else 0.0)
+    report = {
+        "generated_utc": _dt.now(_tz.utc).strftime("%Y-%m-%d %H:%M:%S"),
+        "mode": "REAL_TEST" if config.REAL_TEST_MODE else "LIVE",
+        "api_url": config.API_URL,
+        "duration_min": round(dur_s / 60, 1),
+        "order_size_btc": state.order_size_btc,
+        "scale_factor": round(scale, 2),
+        "orders_placed": state.total_orders_placed,
+        "orders_filled": state.total_orders_filled,
+        "orders_cancelled": state.total_orders_cancelled,
+        "fill_rate_pct": round(fill_rate, 1),
+        "buys_filled": state.total_buys_filled,
+        "sells_filled": state.total_sells_filled,
+        "actual": {
+            "realized_pnl_net_usd": round(state.daily_pnl_usd, 4),
+            "fees_usd": round(state.daily_fees_usd, 4),
+        },
+        "projected_at_full_size": {
+            "realized_pnl_net_usd": round(state.daily_pnl_usd * scale, 4),
+            "fees_usd": round(state.daily_fees_usd * scale, 4),
+            "note": "Fees scale linearly with size; queue position and book "
+                    "impact do not. Treat projected P&L as optimistic for "
+                    "sizes large relative to L1 depth.",
+        },
+    }
+    try:
+        from pathlib import Path as _Path
+        out = _Path(__file__).parent / "real_test_report.json"
+        out.write_text(_json.dumps(report, indent=2))
+        md = _Path(__file__).parent / "real_test_report.md"
+        a, p = report["actual"], report["projected_at_full_size"]
+        md.write_text(
+            f"# Real-test session report — {report['generated_utc']} UTC\n\n"
+            f"- Mode: **{report['mode']}** on `{report['api_url']}`\n"
+            f"- Duration: {report['duration_min']} min | order size: "
+            f"{report['order_size_btc']} BTC | scale ×{report['scale_factor']}\n"
+            f"- Orders: {report['orders_placed']} placed / "
+            f"{report['orders_filled']} filled ({report['fill_rate_pct']}%) / "
+            f"{report['orders_cancelled']} cancelled "
+            f"(buys {report['buys_filled']} / sells {report['sells_filled']})\n\n"
+            f"| | Actual ({report['order_size_btc']} BTC) | Projected ×{report['scale_factor']} |\n"
+            f"|---|---|---|\n"
+            f"| Realized P&L (net of fees) | ${a['realized_pnl_net_usd']:+.4f} | ${p['realized_pnl_net_usd']:+.4f} |\n"
+            f"| Fees paid | ${a['fees_usd']:.4f} | ${p['fees_usd']:.4f} |\n\n"
+            f"> {p['note']}\n"
+        )
+        logger.info("Real-test report written to %s", out)
+    except Exception as exc:
+        logger.warning("Could not write real-test report: %s", exc)
 
 
 def _handle_order_update(state: BotState, update: dict) -> None:
@@ -778,10 +913,22 @@ def _install_signal_handlers(state: BotState, executor: OrderExecutor, loop: asy
 
 async def run() -> None:
     loop  = asyncio.get_running_loop()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=10_000)
+    # Unbounded: the conflating main_loop drains faster than the WS can fill,
+    # and a bounded queue + put_nowait silently dropped FILL events on overflow.
+    queue: asyncio.Queue = asyncio.Queue()
 
     state    = BotState()
+    state.load_daily_pnl()
     executor = OrderExecutor(exchange=_exchange, state=state, loop=loop, account_address=_account_address)
+
+    if state.daily_pnl_usd <= -config.MAX_DAILY_LOSS_USD:
+        logger.critical(
+            "Daily loss ledger already at -%.2f$ (limit %.2f$) — circuit breaker "
+            "engaged at startup. Bot will not trade until the next UTC day.",
+            -state.daily_pnl_usd, config.MAX_DAILY_LOSS_USD,
+        )
+        state.set_circuit_breaker()
+        return
 
     _install_signal_handlers(state, executor, loop)
 
@@ -848,13 +995,16 @@ async def run() -> None:
         ws_manager_holder[0].stop()
         logger.info("Final state: %s", state.summary())
         scale_str = ""
-        if config.LIVE_TEST_SCALE != 1.0:
-            scale_str = f" | projected×{config.LIVE_TEST_SCALE:.0f}={state.daily_pnl_usd * config.LIVE_TEST_SCALE:+.2f}$"
+        if state.live_test_scale != 1.0:
+            scale_str = f" | projected×{state.live_test_scale:.0f}={state.daily_pnl_usd * state.live_test_scale:+.2f}$"
         logger.info(
-            "Session summary | orders=%d fills=%d cancelled=%d buys=%d sells=%d | realised_PnL=%.2f$%s",
+            "Session summary | orders=%d fills=%d cancelled=%d buys=%d sells=%d | realised_PnL=%.2f$ fees=%.2f$%s",
             state.total_orders_placed, state.total_orders_filled, state.total_orders_cancelled,
-            state.total_buys_filled, state.total_sells_filled, state.daily_pnl_usd, scale_str,
+            state.total_buys_filled, state.total_sells_filled, state.daily_pnl_usd,
+            state.daily_fees_usd, scale_str,
         )
+        if config.REAL_TEST_MODE or state.live_test_scale != 1.0:
+            write_real_test_report(state)
 
 
 if __name__ == "__main__":

@@ -293,6 +293,7 @@ def run_replay_backtest(jsonl_path: str) -> None:
     through the exact live strategy.  Produces the same report as the
     live paper trader.
     """
+    import clock
     from state import BotState, Level, OrderBook
     from strategy import compute_price_trend, compute_tfi, evaluate_signal, ingest_trade, process_book_update
 
@@ -315,6 +316,13 @@ def run_replay_backtest(jsonl_path: str) -> None:
     lines = path.read_text().splitlines()
     print(f"Replay: {len(lines)} events from {jsonl_path}")
 
+    # Drive the strategy's clock with RECORDED time, not CPU time. Without
+    # this, the OFI/TFI windows and every cooldown advance with how fast the
+    # replay loop runs — hours of tape collapse into a 400ms window and the
+    # replayed strategy is not the live strategy.
+    _replay_now = {"ms": 0}
+    clock.set_source(lambda: _replay_now["ms"])
+
     for raw in lines:
         try:
             evt = json.loads(raw)
@@ -323,6 +331,8 @@ def run_replay_backtest(jsonl_path: str) -> None:
 
         kind    = evt.get("type")
         wall_ms = evt.get("wall_ms", 0)
+        if wall_ms:
+            _replay_now["ms"] = wall_ms
 
         # ── Forward return resolution
         if filled:
@@ -418,6 +428,8 @@ def run_replay_backtest(jsonl_path: str) -> None:
                 else:
                     still.append(order)
             pending[:] = still
+
+    clock.set_source(None)   # restore the live clock
 
     # ── Report (same format as live paper_trader)
     n_sig    = len(filled) + len(expired) + len(pending)

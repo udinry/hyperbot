@@ -34,3 +34,14 @@ out/
 *.suo
 *.sw?
 .DS_Store
+
+# hft_bot runtime artifacts (per-deployment, never commit)
+hft_bot/bot.log
+hft_bot/bot.log.*
+hft_bot/trades.csv
+hft_bot/daily_pnl_state.json
+hft_bot/daily_pnl_state.tmp
+hft_bot/paper_state.json
+hft_bot/real_test_report.json
+hft_bot/real_test_report.md
+hft_bot/*.jsonl

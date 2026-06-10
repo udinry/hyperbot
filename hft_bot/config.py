@@ -23,7 +23,7 @@ TESTNET_API_URL = "https://api.hyperliquid-testnet.xyz"
 MAINNET_API_URL = "https://api.hyperliquid.xyz"
 
 # Default to TESTNET — set HYPERLIQUID_API_URL=https://api.hyperliquid.xyz in .env for mainnet.
-API_URL: str = os.getenv("HYPERLIQUID_API_URL", TESTNET_API_URL)
+API_URL: str = os.getenv("HYPERLIQUID_API_URL", TESTNET_API_URL).rstrip("/")
 USE_TESTNET: bool = API_URL == TESTNET_API_URL
 
 # ---------------------------------------------------------------------------
@@ -160,7 +160,9 @@ VWAP_BUY_MAX_DEV: float = float(os.getenv("VWAP_BUY_MAX_DEV", "inf"))
 # Maximum position hold time in milliseconds. 0 = disabled.
 # OFI signal half-life is 10-30s — after this limit, close at market regardless of P&L.
 # Prevents stale directional exposure when TP/SL are far from current price.
-MAX_POSITION_HOLD_MS: int = int(os.getenv("MAX_POSITION_HOLD_MS", "0"))
+# Default 600000 (10 min): a position older than this is no longer an OFI trade,
+# it is an unhedged directional bet held on a dead signal. Set 0 to disable.
+MAX_POSITION_HOLD_MS: int = int(os.getenv("MAX_POSITION_HOLD_MS", "600000"))
 
 # Once unrealized profit reaches this fraction of notional, move SL to entry (break-even).
 # 0 = disabled. 0.005 = trail after 0.5% profit (half the TP distance).
@@ -173,6 +175,13 @@ POST_SL_COOLDOWN_MS: int = int(os.getenv("POST_SL_COOLDOWN_MS", "0"))
 # Minimum 1-min ATR ($/min) required to enter a trade. 0 = disabled.
 # Prevents entries during dead-flat markets where the TP target is unreachable.
 ATR_MIN_TRADE_USD: float = float(os.getenv("ATR_MIN_TRADE_USD", "0.0"))
+
+# Maximum 1-min ATR ($/min) allowed for entry. 0 = disabled.
+# Spike-regime guard: when 1-min ATR approaches the stop distance
+# (STOP_LOSS_PCT × price), the SL sits inside ordinary noise and gets hunted
+# while OFI saturates on a depleted book. Rule of thumb: set to roughly half
+# the dollar stop distance (e.g. SL 0.5% on $77k ≈ $385 → ATR_MAX ≈ 190).
+ATR_MAX_TRADE_USD: float = float(os.getenv("ATR_MAX_TRADE_USD", "0.0"))
 
 # UTC hour range [start, end) during which ALL signals are suppressed.
 # Set both to -1 (default) to disable. Example: start=8, end=12 blocks EU lull.
@@ -196,14 +205,26 @@ WS_RECONNECT_DELAY_S: float = float(os.getenv("WS_RECONNECT_DELAY_S", "2.0"))
 WS_MAX_RECONNECTS: int = int(os.getenv("WS_MAX_RECONNECTS", "10"))
 
 # ---------------------------------------------------------------------------
-# Live-test scale factor
+# Real-test mode (scaled-down live trading on mainnet)
 # ---------------------------------------------------------------------------
-# When running with minimum position size (0.001 BTC) to validate strategy
-# with real exchange mechanics, set LIVE_TEST_SCALE to the ratio of the
-# intended full-size position to the test size.
-# Example: full size 0.010 BTC, test size 0.001 BTC → LIVE_TEST_SCALE=10
-# All P&L logs then show both actual and projected-at-scale numbers.
+# REAL_TEST_MODE=1 trades REAL orders at the exchange-minimum size (0.001 BTC)
+# regardless of POSITION_RISK_PCT, so order placement, ALO queueing, fills,
+# slippage and SL/TP mechanics are exercised with real money but minimal risk.
+# The scale factor (intended full size / test size) is computed automatically
+# from the live balance, every P&L log line shows the projected-at-scale
+# number, and a session report (real_test_report.json + .md) is written on
+# shutdown comparing actual vs scaled-up P&L.
+# Caveat: fees and rebates scale linearly with size, so the projection is fair
+# for them — but queue position and book impact do NOT scale linearly. Treat
+# scaled P&L as optimistic for sizes that are large relative to L1 depth.
+REAL_TEST_MODE: bool = os.getenv("REAL_TEST_MODE", "").lower() in ("1", "true", "yes")
+
+# Manual scale override for P&L projection logs (ignored when REAL_TEST_MODE
+# computes it automatically). Example: full size 0.010, test size 0.001 → 10.
 LIVE_TEST_SCALE: float = float(os.getenv("LIVE_TEST_SCALE", "1.0"))
+
+# Exchange-minimum BTC order size used by REAL_TEST_MODE.
+MIN_ORDER_SIZE_BTC: float = 0.001
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -223,6 +244,9 @@ def validate() -> None:
     assert MAX_INVENTORY_BTC > 0
     assert 0 < STOP_LOSS_PCT < 1
     assert MAX_DAILY_LOSS_USD > 0
+    assert ATR_MAX_TRADE_USD == 0 or ATR_MAX_TRADE_USD > ATR_MIN_TRADE_USD, \
+        "ATR_MAX_TRADE_USD must be 0 (disabled) or greater than ATR_MIN_TRADE_USD"
+    assert MAX_POSITION_HOLD_MS >= 0
     if OBSERVER_MODE:
         import logging
         logging.warning("[config] No PRIVATE_KEY set — running in OBSERVER MODE (no orders will be placed)")

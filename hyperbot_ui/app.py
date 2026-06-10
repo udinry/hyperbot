@@ -1,21 +1,60 @@
 from __future__ import annotations
 
+import hmac
 import json
+import logging
+import os
 import re
 import subprocess
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
-WALLET_ADDRESS = "0x70C780d4e1497598eEB0ae54CCA6011CD55FF89D"
+WALLET_ADDRESS = os.getenv("HYPERBOT_WALLET_ADDRESS", "0x70C780d4e1497598eEB0ae54CCA6011CD55FF89D")
 HL_API_URL = "https://api.hyperliquid.xyz/info"
 
 BOT_SERVICE = "hyperbot-bot"
 BOT_LOG = Path("/opt/hyperbot/hft_bot/bot.log")
 
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# App-level auth. This service can start/stop a live trading bot — it must not
+# rely solely on the reverse proxy being configured correctly. Set
+# HYPERBOT_UI_USER / HYPERBOT_UI_PASSWORD in the service environment; when
+# unset, a prominent warning is logged and behaviour is unchanged (back-compat
+# with the existing nginx basic-auth deployment).
+# ---------------------------------------------------------------------------
+_UI_USER = os.getenv("HYPERBOT_UI_USER", "")
+_UI_PASS = os.getenv("HYPERBOT_UI_PASSWORD", "")
+if not (_UI_USER and _UI_PASS):
+    logging.getLogger(__name__).warning(
+        "HYPERBOT_UI_USER/HYPERBOT_UI_PASSWORD not set — management UI relies "
+        "entirely on the reverse proxy for authentication. Set them in the "
+        "hyperbot-ui.service environment for defence in depth."
+    )
+
+
+def require_auth(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if _UI_USER and _UI_PASS:
+            auth = request.authorization
+            ok = (
+                auth is not None
+                and hmac.compare_digest(auth.username or "", _UI_USER)
+                and hmac.compare_digest(auth.password or "", _UI_PASS)
+            )
+            if not ok:
+                return Response(
+                    "Authentication required", 401,
+                    {"WWW-Authenticate": 'Basic realm="hyperbot"'},
+                )
+        return fn(*args, **kwargs)
+    return wrapper
 
 _STATE_RE = re.compile(
     r"(\d{2}:\d{2}:\d{2})\.\d+ \[INFO\] main \| STATE \| "
@@ -123,11 +162,13 @@ def _parse_log():
 
 @app.route("/hyperbot/")
 @app.route("/hyperbot")
+@require_auth
 def index():
     return render_template("hyperbot.html")
 
 
 @app.route("/hyperbot/api/status")
+@require_auth
 def api_status():
     last_state = _parse_log()
     try:
@@ -147,6 +188,7 @@ def api_status():
 
 
 @app.route("/hyperbot/api/trades")
+@require_auth
 def api_trades():
     days = request.args.get("days", 1, type=int)
     try:
@@ -157,6 +199,7 @@ def api_trades():
 
 
 @app.route("/hyperbot/api/pnl")
+@require_auth
 def api_pnl():
     days = request.args.get("days", 1, type=int)
     try:
@@ -168,18 +211,21 @@ def api_pnl():
 
 
 @app.route("/hyperbot/api/start", methods=["POST"])
+@require_auth
 def api_start():
     subprocess.run(["sudo", "systemctl", "start", BOT_SERVICE], timeout=5)
     return jsonify({"ok": True})
 
 
 @app.route("/hyperbot/api/stop", methods=["POST"])
+@require_auth
 def api_stop():
     subprocess.run(["sudo", "systemctl", "stop", BOT_SERVICE], timeout=5)
     return jsonify({"ok": True})
 
 
 @app.route("/hyperbot/api/portfolio")
+@require_auth
 def api_portfolio():
     try:
         perp = _hl_post({"type": "clearinghouseState", "user": WALLET_ADDRESS})
@@ -223,6 +269,7 @@ def api_portfolio():
 
 
 @app.route("/hyperbot/api/log")
+@require_auth
 def api_log():
     lines = []
     if BOT_LOG.exists():
@@ -322,16 +369,19 @@ def _svc_status_paper() -> str:
 
 @app.route("/hyperbot/paperbot")
 @app.route("/hyperbot/paperbot/")
+@require_auth
 def paperbot_index():
     return render_template("paperbot.html")
 
 
 @app.route("/hyperbot/api/paper/status")
+@require_auth
 def api_paper_status():
     return jsonify(_parse_paper_state())
 
 
 @app.route("/hyperbot/api/paper/log")
+@require_auth
 def api_paper_log():
     lines = _paper_logs(200)
     paper_lines = [l for l in lines if "[PAPER]" in l or "SIGNAL" in l or "FILL" in l or "CLOSE" in l]
