@@ -38,6 +38,22 @@ variant was **−$19 to −$33/day** despite the positive directional accuracy �
 more signals just means more cost bleed. **Conclusion: liquid BTC has no
 exploitable directional edge at 1-minute resolution after transaction costs.**
 
+## 2b. Confirmed across a full year (381 days, all regimes)
+
+Re-running on 381 days of OKX BTC 1m (May 2025 → Jun 2026: strong uptrends
+Jul'25/Apr'26, crashes Nov'25 −17.6%, Feb'26 −15%, Jun'26 −17%, plus chop):
+
+- Realistic-entry directional accuracy: **45.8–47.1%** at every horizon (still
+  sub-coin-flip); median edge negative everywhere.
+- Honest P&L, every exit policy: **−$5.74 to −$9.84/day** (12,690 signals,
+  9,378 fills). The no-1-min-edge result holds across a full market cycle.
+
+## 2c. Live tick reality: the real strategy barely fills
+
+~55 min of mainnet paper trading (exact 14-gate strategy on real ticks, three
+sessions) produced ~9 signals and **0 fills** — zero round trips, hence zero
+real P&L evidence. Certifying the real signal would take months of live data.
+
 ## 3. What this does NOT prove
 
 The live strategy uses **sub-second L2 order-flow imbalance**, a signal that
