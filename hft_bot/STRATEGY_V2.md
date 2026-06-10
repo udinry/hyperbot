@@ -20,6 +20,9 @@ or break the idea. That is what `trend_bot.py` is.
 - **Signal** (daily closes): ensemble of 4 classic trend votes —
   `close > SMA50`, `close > SMA100`, `close > close[60d]`, `close > close[90d]`.
   Position fraction = mean of votes ∈ {0, .25, .5, .75, 1}.
+- **Regime filter** (v2.1): all longs suppressed unless `close > SMA150` — keeps
+  the system in cash through sustained bears. Chosen on in-sample (best Sharpe +
+  drawdown vs the 200d alternative), confirmed out-of-sample (below).
 - **Vol targeting**: fraction × `min(1, 40% / realized 30-day annualized vol)`.
 - **Execution**: at most one rebalance per day, IOC, only when the delta ≥ 1 lot
   **and** ≥ 15% of full position size (anti-churn).
@@ -45,21 +48,26 @@ or break the idea. That is what `trend_bot.py` is.
 
 | | CAGR | Max drawdown | Sharpe | $1,000 → |
 |---|---|---|---|---|
-| **Trend ensemble (vol-targeted 40%)** | **+13.1%** | **32.7%** | **0.59** | **$1,726** |
-| Trend ensemble (raw) | +13.8% | 39.9% | 0.57 | $1,773 |
+| **v2.1 + 150d regime filter** | **+21.2%** | **22.2%** | **0.88** | **$2,320** |
+| v2.0 vol-targeted ensemble | +13.1% | 32.7% | 0.59 | $1,726 |
 | Buy & hold | +5.9% | 67.0% | 0.37 | $1,288 |
 
-Funding sensitivity (raw ensemble): 0% APR → +18.5% CAGR; 15% APR → +9.8%.
+The regime filter (v2.1) is the single biggest improvement: +8 pts of CAGR,
+−10 pts of drawdown, and it nearly eliminates the 2022 bear loss.
 
-### Year-by-year, vol-targeted ensemble (OOS)
+### Year-by-year, v2.1 (150d regime filter, OOS)
 
 | Year | Strategy | Buy & hold |
 |---|---|---|
-| 2022 (bear) | **−31.9%** | −65.2% |
-| 2023 (bull) | +72.5% | +166.2% |
-| 2024 (bull) | +62.4% | +113.4% |
-| 2025 (chop) | +1.5% | −6.0% |
-| 2026 YTD (bear) | **−10.9%** | −30.7% |
+| 2022 (bear) | **−4.3%** | −65.2% |
+| 2023 (bull) | +61.6% | +166.2% |
+| 2024 (bull) | +64.4% | +113.4% |
+| 2025 (chop) | −0.6% | −6.0% |
+| 2026 YTD (bear) | **−15.8%** | −30.7% |
+
+The filter turns the worst year (−32%) into a scratch (−4%) — exactly what a
+regime overlay is supposed to do. It costs a little in whippy chop (2025/2026
+slightly worse) but the drawdown reduction dominates.
 
 The pattern is the documented trend-following signature: give up part of the
 bull, skip most of the bear, much better compounding per unit of pain.

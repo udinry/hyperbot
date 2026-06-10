@@ -58,3 +58,23 @@ def test_should_rebalance_threshold():
     assert tb.should_rebalance(0.010, 0.013, full)        # 3 lots, 30% of full
     assert tb.should_rebalance(0.0, 0.010, full)          # full entry
     assert tb.should_rebalance(0.010, 0.0, full)          # full exit
+
+
+def test_regime_filter_blocks_long_below_sma():
+    # uptrend for 200d then a sharp drop below the 150d SMA on the last days
+    closes = _series(50_000, 100_000, 200) + _series(100_000, 60_000, 30)
+    # ensemble votes may be mixed, but regime gate must force flat
+    if tb.REGIME_FILTER_DAYS > 0:
+        assert tb.regime_ok(closes) is False
+        assert tb.ensemble_fraction(closes) == 0.0
+
+
+def test_regime_ok_true_in_uptrend():
+    closes = _series(50_000, 100_000, 200)
+    assert tb.regime_ok(closes) is True
+
+
+def test_regime_filter_disabled_when_zero(monkeypatch):
+    monkeypatch.setattr(tb, "REGIME_FILTER_DAYS", 0)
+    closes = _series(100_000, 60_000, 200)  # downtrend
+    assert tb.regime_ok(closes) is True   # filter off => always ok
