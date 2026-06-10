@@ -69,6 +69,14 @@ REBALANCE_MIN_FRAC = float(os.getenv("REBALANCE_MIN_FRAC", "0.15"))
 LOT_BTC = 0.001
 MIN_HISTORY_D = max(max(SMA_WINDOWS), max(MOM_WINDOWS)) + 1
 
+# Multi-asset: TREND_COINS="BTC" (default) or e.g. "BTC,ETH,SOL" (equal weight).
+# The ensemble transfers with frozen parameters (research_portfolio.py): OOS
+# 2022+ it turned ETH B&H -17%/yr into +9% and SOL -21%/yr into +4%. Note the
+# portfolio cuts MaxDD (28% vs 33%) but BTC-only has the best Sharpe; with a
+# small account, lot granularity argues for BTC-only.
+TREND_COINS = [c.strip().upper() for c in
+               os.getenv("TREND_COINS", "BTC").split(",") if c.strip()]
+
 STATE_FILE = _HERE / "trend_state.json"
 
 
@@ -133,78 +141,114 @@ def _post_info(payload: dict, timeout: int = 15):
         return json.loads(r.read())
 
 
-def fetch_daily_closes(days: int = 400) -> list[float]:
+def fetch_daily_closes(coin: str, days: int = 400) -> list[float]:
     now = int(time.time() * 1000)
     data = _post_info({"type": "candleSnapshot", "req": {
-        "coin": config.COIN, "interval": "1d",
+        "coin": coin, "interval": "1d",
         "startTime": now - days * 86_400_000, "endTime": now}})
     closes = [float(c["c"]) for c in data]
     if not closes:
-        raise RuntimeError("no daily candles returned")
+        raise RuntimeError(f"no daily candles returned for {coin}")
     return closes
 
 
-def fetch_equity_and_position(address: str) -> tuple[float, float, float]:
-    """(perp_equity_usd, position_btc, mark_price)."""
+_lot_cache: dict = {}
+
+def lot_size(coin: str) -> float:
+    """Lot (min size increment) from exchange meta szDecimals; cached."""
+    if not _lot_cache:
+        try:
+            meta = _post_info({"type": "meta"})
+            for a in meta.get("universe", []):
+                _lot_cache[a["name"]] = 10 ** -int(a.get("szDecimals", 3))
+        except Exception as exc:
+            logger.warning("meta fetch failed (%s) — defaulting lots to 0.001", exc)
+    return _lot_cache.get(coin, LOT_BTC)
+
+
+def fetch_account(address: str) -> tuple[float, dict, dict]:
+    """(perp_equity_usd, {coin: position}, {coin: mark_price})."""
     st = _post_info({"type": "clearinghouseState", "user": address})
     equity = float(st["marginSummary"]["accountValue"])
-    pos = 0.0
+    pos = {}
     for ap in st.get("assetPositions", []):
         p = ap.get("position", {})
-        if p.get("coin") == config.COIN:
-            pos = float(p.get("szi", 0))
+        if p.get("coin"):
+            pos[p["coin"]] = float(p.get("szi", 0))
     mids = _post_info({"type": "allMids"})
-    price = float(mids.get(config.COIN, 0))
-    return equity, pos, price
+    prices = {c: float(mids.get(c, 0)) for c in TREND_COINS}
+    return equity, pos, prices
 
 
 # ---------------------------------------------------------------------------
 # Decision cycle
 # ---------------------------------------------------------------------------
-def decide_and_trade(exchange, address: str, dry_run: bool = False) -> dict:
-    closes = fetch_daily_closes()
+def decide_one(exchange, coin: str, equity_slice: float, current: float,
+               price: float, dry_run: bool) -> dict:
+    closes = fetch_daily_closes(coin)
     frac = ensemble_fraction(closes)
     scale = vol_scale(closes)
-    if address:
-        equity, current, price = fetch_equity_and_position(address)
-    else:  # observer mode without an address: show the signal on nominal $1000
-        mids = _post_info({"type": "allMids"})
-        equity, current, price = 1000.0, 0.0, float(mids.get(config.COIN, 0))
-    target = target_position_btc(closes, equity, price)
-    full = round(equity * LEVERAGE / price / LOT_BTC) * LOT_BTC if price else 0.0
+    lot = lot_size(coin)
+    target = 0.0
+    if price > 0:
+        notional = equity_slice * LEVERAGE * frac * scale
+        target = round(notional / price / lot) * lot
+    full = round(equity_slice * LEVERAGE / price / lot) * lot if price else 0.0
 
-    info = dict(utc=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"),
-                price=price, equity=equity, signal_frac=frac, vol_scale=round(scale, 3),
-                current_btc=current, target_btc=target, traded=False)
-    logger.info("DECISION | px=%.0f equity=$%.2f signal=%.2f vol_scale=%.2f "
-                "current=%.3f target=%.3f BTC",
-                price, equity, frac, scale, current, target)
+    info = dict(coin=coin, price=price, signal_frac=frac,
+                vol_scale=round(scale, 3), current=current, target=target,
+                traded=False)
+    logger.info("DECISION %s | px=%.2f slice=$%.2f signal=%.2f vol_scale=%.2f "
+                "current=%s target=%s", coin, price, equity_slice, frac, scale,
+                current, target)
 
-    if not should_rebalance(current, target, full):
-        logger.info("No rebalance needed (delta below threshold)")
+    delta = target - current
+    if abs(delta) < lot or abs(delta) < REBALANCE_MIN_FRAC * max(full, lot):
+        logger.info("%s: no rebalance needed", coin)
         return info
     if dry_run or exchange is None:
-        logger.info("[DRY-RUN/OBSERVER] would %s %.3f BTC",
-                    "BUY" if target > current else "SELL", abs(target - current))
+        logger.info("[DRY-RUN/OBSERVER] %s: would %s %s", coin,
+                    "BUY" if delta > 0 else "SELL", abs(round(delta, 8)))
         return info
 
-    delta = round(target - current, 3)
     is_buy = delta > 0
-    # IOC with 0.5% slippage allowance; daily cadence makes taker cost (3.5bp)
-    # irrelevant relative to the edge (~3bp/day average).
     limit = price * (1.005 if is_buy else 0.995)
-    limit = round(round(limit / config.PRICE_TICK) * config.PRICE_TICK, 1)
-    logger.info("REBALANCE | %s %.3f BTC IOC @ %.0f", "BUY" if is_buy else "SELL",
-                abs(delta), limit)
+    # tick rounding: use a conservative 6-sig-digit round (per-coin ticks vary)
+    limit = float(f"{limit:.6g}")
+    sz = abs(round(delta, 8))
+    logger.info("REBALANCE %s | %s %s IOC @ %s", coin,
+                "BUY" if is_buy else "SELL", sz, limit)
     try:
-        res = exchange.order(config.COIN, is_buy, abs(delta), limit,
+        res = exchange.order(coin, is_buy, sz, limit,
                              order_type={"limit": {"tif": "Ioc"}},
                              reduce_only=False)
         logger.info("Order result: %s", res)
         info["traded"] = True
     except Exception as exc:
-        logger.error("Rebalance order failed: %s", exc, exc_info=True)
+        logger.error("%s rebalance failed: %s", coin, exc, exc_info=True)
     return info
+
+
+def decide_and_trade(exchange, address: str, dry_run: bool = False) -> dict:
+    if address:
+        equity, positions, prices = fetch_account(address)
+    else:  # observer mode without an address: show signals on nominal $1000
+        mids = _post_info({"type": "allMids"})
+        equity = 1000.0
+        positions = {}
+        prices = {c: float(mids.get(c, 0)) for c in TREND_COINS}
+
+    slice_usd = equity / len(TREND_COINS)
+    results = []
+    for coin in TREND_COINS:
+        try:
+            results.append(decide_one(exchange, coin, slice_usd,
+                                      positions.get(coin, 0.0),
+                                      prices.get(coin, 0.0), dry_run))
+        except Exception as exc:
+            logger.error("decision failed for %s: %s", coin, exc, exc_info=True)
+    return dict(utc=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"),
+                equity=equity, coins=results)
 
 
 def _load_state() -> dict:

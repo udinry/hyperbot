@@ -69,6 +69,42 @@ bull, skip most of the bear, much better compounding per unit of pain.
 Vol-targeted ensemble: +76% CAGR, 35% MaxDD, Sharpe 1.79 (buy & hold: +122%
 CAGR, 84% MaxDD, Sharpe 1.43). IS numbers are always inflated; trust the OOS.
 
+## Multi-asset extension (frozen-parameter transfer test)
+
+The strongest robustness test possible: apply the BTC-tuned ensemble to ETH
+(10y data) and SOL (5y data) with **zero re-tuning**, OOS 2022+ with the same
+costs and funding drag (`research_portfolio.py`):
+
+| Asset | Strategy CAGR | Strategy MaxDD | Buy & hold CAGR | B&H MaxDD |
+|---|---|---|---|---|
+| BTC | +13.1% | 32.7% | +5.9% | 67.0% |
+| ETH | **+8.9%** | 29.7% | **−17.2%** | 74.0% |
+| SOL | **+3.9%** | 39.4% | **−20.7%** | 94.6% |
+
+Parameters the system never saw ETH/SOL data for still added ~26 points of
+annual return on each — the trend effect is real, not BTC curve-fit.
+
+**Portfolio (1/3 each, OOS 2022+):** +9.5% CAGR, 28.4% MaxDD, Sharpe 0.50.
+Crypto's high internal correlation (BTC/ETH 0.84, vs SOL 0.75) limits the
+diversification benefit: the portfolio cuts the worst drawdown but BTC-only
+keeps the best Sharpe (0.59 vs 0.50).
+
+**Recommendation:** `TREND_COINS=BTC` (default) for small accounts — lot
+granularity makes thirds of $160 impractical and BTC-only is the best
+risk-adjusted single line. At ≳$1,000, `TREND_COINS=BTC,ETH,SOL` is a
+defensible choice for drawdown reduction.
+
+### Consistency, quantified (bootstrap of 10,000 resampled 12-month periods)
+
+- P(any 12-month period is negative): **~35%**
+- 12-month outcomes: 5th pct **−25%**, median **+9.5%**, 95th pct **+60%**
+- Even good years have 5–6 losing months.
+
+This is what "consistently profitable" honestly means for a directional crypto
+strategy: positive expectancy over years, not positive every month. Anything
+promising positive months is either market-neutral (different strategy class,
+thin pickings at retail) or lying.
+
 ## Honest expectations — read this before going live
 
 - **The OOS estimate is ~13%/yr with ~33% worst drawdown.** On a $160 account
