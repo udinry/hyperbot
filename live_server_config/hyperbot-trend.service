@@ -1,0 +1,16 @@
+[Unit]
+Description=Hyperbot Trend Bot v2 (daily BTC trend ensemble on Hyperliquid)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/hyperbot/hft_bot
+EnvironmentFile=/opt/hyperbot/.env
+ExecStart=/opt/hyperbot/.venv/bin/python trend_bot.py
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

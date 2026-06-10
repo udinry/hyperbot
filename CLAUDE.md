@@ -20,11 +20,23 @@ hyperbot/
 
 ## HFT Bot (`hft_bot/`)
 
+> **Strategy status (June 2026):** the OFI scalper could NOT be validated as
+> profitable — honest backtests on 60d/381d of regime-diverse data show <1bp
+> edge vs >2bp costs at 1-min horizon, and live paper trading produced ~0
+> fills/hour (see `hft_bot/BACKTEST_FINDINGS.md`). The validated system is
+> **Trend Bot v2** (`trend_bot.py`): daily vol-targeted trend ensemble,
+> OOS 2022–2026 +13.1% CAGR / 32.7% MaxDD vs buy-and-hold +5.9% / 67%
+> (`hft_bot/STRATEGY_V2.md`). Run ONE bot per account, not both.
+
 ### Files
 
 | File | Purpose |
 |---|---|
 | `config.py` | All tuning parameters; reads `.env` + `risk.yaml` |
+| `trend_bot.py` | **Trend Bot v2** — daily trend ensemble (the validated strategy) |
+| `research_trend.py` | Reproducible walk-forward research behind Trend Bot v2 |
+| `honest_backtest.py` | Honest-accounting harness (real fills/fees/TP-SL path) |
+| `fetch_okx.py` | Deep 1m history fetcher (OKX) for regime-diverse backtests |
 | `risk.yaml` | Hot-reloadable risk limits (send SIGHUP to reload) |
 | `state.py` | `BotState` dataclass — book, inventory, PnL, OFI window, trade window |
 | `strategy.py` | 6-gate OFI+TFI signal engine |
