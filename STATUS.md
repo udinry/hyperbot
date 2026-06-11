@@ -77,6 +77,12 @@ assets (LTC/BCH/LINK/XRP/DOGE/AVAX): 6/6 beat B&H risk-adjusted on full
 history, 5/6 on 2022+. Nine assets total now confirm the mechanism with one
 frozen parameter set. Majors remain the trading universe (best Sharpe).
 
+**2026-06-11 (cycle) — short sleeve REJECTED in-sample:** regime-gated shorts
+(only below SMA150, vol-scaled) degrade IS Sharpe 1.70→1.60 (half) →1.40
+(full) with deeper DD. OOS untouched per discipline. Cash remains the bear
+position. Routine: forward mark + shadow log deduped (same UTC day), 9-asset
+breadth result stands.
+
 ## Counterfactual audit (user-requested, 2026-06-11)
 
 `hft_bot/shadow_book.py` logs every liquid-universe long signal the system

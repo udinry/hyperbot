@@ -39,7 +39,10 @@ or break the idea. That is what `trend_bot.py` is.
 - **Plateau, not peak**: the IS parameter surface is broad (SMA20–150 and
   MOM20–120 all Sharpe 1.4–1.8). The ensemble uses plateau centers, not the
   single best cell. Long/short was evaluated IS and **rejected** (Sharpe 1.38
-  vs 1.66 long/flat).
+  vs 1.66 long/flat). A regime-gated short sleeve (short only below SMA150,
+  vol-scaled, half- and full-size) was also evaluated IS and **rejected**
+  (Sharpe 1.70 → 1.60/1.40, deeper DD): even in confirmed bears, shorting BTC
+  costs more in squeezes than it earns — cash is the better bear position.
 - Reproduce everything: `python research_trend.py`.
 
 ## Results
