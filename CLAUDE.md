@@ -37,6 +37,8 @@ hyperbot/
 | `research_trend.py` | Reproducible walk-forward research behind Trend Bot v2 |
 | `honest_backtest.py` | Honest-accounting harness (real fills/fees/TP-SL path) |
 | `fetch_okx.py` | Deep 1m history fetcher (OKX) for regime-diverse backtests |
+| `forward_test.py` | Daily paper track record + funding accumulation + drift verdict |
+| `notify.py` | Telegram alerts (silent no-op without token) |
 | `risk.yaml` | Hot-reloadable risk limits (send SIGHUP to reload) |
 | `state.py` | `BotState` dataclass — book, inventory, PnL, OFI window, trade window |
 | `strategy.py` | 6-gate OFI+TFI signal engine |

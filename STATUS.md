@@ -22,6 +22,14 @@ pivoted to a horizon where edge >> costs and a decade of data exists.
 deterministic risk engine it cannot override. Dry-run default, full audit trail,
 21 tests + 51 hft_bot tests passing.
 
+## Deploy everything in one shot (VPS)
+
+```bash
+cd /opt/hyperbot && git pull && bash deploy_trend_stack.sh
+```
+Installs the forward-test timer + observer-mode trend bot (paper only), after
+running both test suites. Drift verdict: `python hft_bot/forward_test.py --report`.
+
 ## How to run a live forward-test (recommended next real step)
 
 This is the evidence that settles everything — deploy in dry-run and let it
