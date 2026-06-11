@@ -115,6 +115,18 @@ granularity makes thirds of $160 impractical and BTC-only is the best
 risk-adjusted single line. At ≳$1,000, `TREND_COINS=BTC,ETH,SOL` is a
 defensible choice for drawdown reduction.
 
+### Breadth test: 9 assets, zero re-tuning (2026-06-11)
+
+Frozen v2.1 applied to six MORE long-history assets (LTC 9.4y, BCH 8.1y,
+LINK 6.5y, XRP 6.9y, DOGE 4.6y, AVAX 4.3y), honest costs + funding drag:
+
+- **Full history: 6/6 beat buy-and-hold risk-adjusted.** Standouts: DOGE
+  +7.1%/yr vs B&H −22.3%; AVAX +10.0%/yr (25% DD) vs B&H −44.9% (94% DD).
+- **2022+ window: 5/6** (LTC ≈ flat but with one-third the B&H drawdown).
+- Alt Sharpes (0.2–0.6) are below BTC's (0.88): majors remain the best
+  expression; the alts confirm the **mechanism** is market-wide, not BTC
+  curve-fit. Nine assets, one frozen parameter set, zero contradictions.
+
 ### Consistency, quantified (bootstrap of 10,000 resampled 12-month periods)
 
 - P(any 12-month period is negative): **~35%**

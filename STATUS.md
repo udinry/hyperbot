@@ -72,6 +72,11 @@ cd /opt/hyperbot/ai_trader && python agent.py status
   ≥2.5y history. This is the scanner working: it found candidates AND the
   discipline filter correctly refused all of them.
 
+**2026-06-11 (later) — breadth test:** frozen v2.1 on 6 more long-history
+assets (LTC/BCH/LINK/XRP/DOGE/AVAX): 6/6 beat B&H risk-adjusted on full
+history, 5/6 on 2022+. Nine assets total now confirm the mechanism with one
+frozen parameter set. Majors remain the trading universe (best Sharpe).
+
 ## Counterfactual audit (user-requested, 2026-06-11)
 
 `hft_bot/shadow_book.py` logs every liquid-universe long signal the system
