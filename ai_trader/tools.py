@@ -101,14 +101,24 @@ TOOL_SCHEMAS: list[dict] = [
 ]
 
 
-def _post_info(api_url: str, payload: dict, timeout: int = 15):
-    req = urllib.request.Request(
-        api_url.rstrip("/") + "/info",
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+def _post_info(api_url: str, payload: dict, timeout: int = 15, retries: int = 3):
+    """POST to /info with retry+backoff — transient exchange 503s must not
+    abort an agent cycle (observed live on Hyperliquid 2026-06-11)."""
+    last_exc = None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(
+                api_url.rstrip("/") + "/info",
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(2.0 * (2 ** attempt))
+    raise last_exc
 
 
 class ToolExecutor:

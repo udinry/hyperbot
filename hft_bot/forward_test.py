@@ -139,7 +139,47 @@ def report(coins: list[str]) -> None:
         print(f"{coin}: {days} live days | total {(eq-1)*100:+.2f}% | "
               f"annualized {ann:+.1f}% | Sharpe {sharpe:.2f} | MaxDD {mdd*100:.1f}% | "
               f"latest target {cr[-1]['target_fraction']}")
-    print(f"\nLog: {LOG}  (compare vs STRATEGY_V2.md backtest: ~21% CAGR / 22% DD)")
+    # drift check on the pooled portfolio record (equal-weight across coins)
+    by_date: dict = {}
+    for r in rows:
+        by_date.setdefault(r["date"], []).append(
+            float(r["strategy_day_return_pct"]) / 100)
+    pooled = [sum(v) / len(v) for d, v in sorted(by_date.items())][1:]
+    print(f"\nDrift check: {drift_verdict(pooled)}")
+    print(f"Log: {LOG}  (backtest expectation: ~21% CAGR / 22% DD — STRATEGY_V2.md)")
+
+
+# Backtest expectation (v2.1 OOS): used by the drift check.
+EXPECT_ANN_RETURN = 0.21
+EXPECT_DAILY_VOL = 0.40 / math.sqrt(365) * 0.55   # vol-targeted ~40% ann * avg deployment
+
+
+def drift_verdict(daily_rets: list[float],
+                  expect_ann: float = EXPECT_ANN_RETURN) -> str:
+    """Compare the live forward record against the backtest expectation.
+
+    Uses a z-test on the mean daily return vs expectation, with the LIVE
+    realized vol as the noise estimate. Honest framing: with <60 days the test
+    has almost no power — verdicts before ~2 months mean 'keep collecting'."""
+    n = len(daily_rets)
+    if n < 14:
+        return f"INSUFFICIENT DATA ({n}d < 14d) — keep collecting."
+    mu = sum(daily_rets) / n
+    sd = math.sqrt(sum((x - mu) ** 2 for x in daily_rets) / n)
+    if sd == 0:
+        return ("FLAT RECORD — model has been in cash the whole period "
+                "(consistent with a downtrend regime; not evidence of drift).")
+    expect_daily = (1 + expect_ann) ** (1 / 365) - 1
+    z = (mu - expect_daily) / (sd / math.sqrt(n))
+    if z < -2.0:
+        return (f"DRIFT WARNING (z={z:.2f}, n={n}d): live returns are "
+                f"significantly below the backtest expectation. Do not scale "
+                f"up; investigate before trusting the model.")
+    if z > 2.0:
+        return (f"ABOVE EXPECTATION (z={z:.2f}, n={n}d): running hot — likely "
+                f"a favourable regime, not skill. Do not extrapolate.")
+    return (f"WITHIN EXPECTATION (z={z:.2f}, n={n}d): live record is "
+            f"statistically consistent with the backtest.")
 
 
 def main() -> None:

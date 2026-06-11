@@ -132,3 +132,20 @@ def test_risk_parity_weights_inverse_vol_and_cap():
     assert max(w.values()) <= 0.5 + 1e-9
     assert sum(w.values()) == pytest.approx(1.0)
     assert tb.risk_parity_weights({}) == {}
+
+
+def test_drift_verdict_bands():
+    import forward_test as ft
+    assert "INSUFFICIENT" in ft.drift_verdict([0.001] * 5)
+    assert "FLAT RECORD" in ft.drift_verdict([0.0] * 30)
+    # consistent with ~21%/yr: small positive daily returns with noise
+    import random
+    random.seed(7)
+    exp = (1 + 0.21) ** (1 / 365) - 1
+    ok = [exp + random.gauss(0, 0.01) for _ in range(90)]
+    assert "WITHIN EXPECTATION" in ft.drift_verdict(ok)
+    # severe underperformance: strongly negative mean, tiny noise
+    bad = [-0.004 + random.gauss(0, 0.002) for _ in range(90)]
+    assert "DRIFT WARNING" in ft.drift_verdict(bad)
+    hot = [0.01 + random.gauss(0, 0.002) for _ in range(90)]
+    assert "ABOVE EXPECTATION" in ft.drift_verdict(hot)
