@@ -88,6 +88,14 @@ exposure by market breadth (fraction of BTC/ETH/LTC above own SMA150) is a
 wash IS 2017-2021 (Sharpe 1.75→1.73, DD 28→25, CAGR 72→66). Ambiguous + adds
 a 3-asset data dependency → reject; not worth the complexity. OOS untouched.
 
+**2026-06-11 (PM cycle) — literature pass + downside-vol REJECTED:** wrote
+LITERATURE.md (TSMOM: MOP 2012, Hurst-Ooi-Pedersen, Liu-Tsyvinski NBER w24877;
+vol mgmt: Moreira-Muir w22208, Wang-Yan JBF 2021) and RESEARCH_AGENDA.md
+(literature-gated, multiple-testing-aware). Tested downside/semi-dev vol
+targeting (Wang-Yan prior): IS raises CAGR (69→85%) but LOWERS Sharpe
+(1.70→1.56) and deepens DD — predicted Sharpe gain absent → 5th kill, OOS
+untouched. Net: v2.1 total-vol targeting stands.
+
 ## Counterfactual audit (user-requested, 2026-06-11)
 
 `hft_bot/shadow_book.py` logs every liquid-universe long signal the system
