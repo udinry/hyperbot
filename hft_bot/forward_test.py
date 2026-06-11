@@ -27,12 +27,31 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
+import notify
 import trend_bot
+
+
+def fetch_funding(coins: list[str]) -> dict[str, float]:
+    """Current hourly funding per coin — accumulated daily, this becomes the
+    history the funding-carry study needs (no public source goes back far)."""
+    try:
+        import json, urllib.request, config
+        req = urllib.request.Request(
+            config.API_URL.rstrip("/") + "/info",
+            data=json.dumps({"type": "metaAndAssetCtxs"}).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read())
+        names = [m["name"] for m in data[0]["universe"]]
+        return {c: float(data[1][names.index(c)]["funding"])
+                for c in coins if c in names}
+    except Exception:
+        return {}
 
 LOG = _HERE / "forward_test_log.csv"
 COLUMNS = ["date", "coin", "close", "signal_fraction", "vol_scale",
            "target_fraction", "prev_close", "day_return_pct",
-           "strategy_day_return_pct", "equity"]
+           "strategy_day_return_pct", "equity", "funding_hr"]
 COST_PER_CHANGE = 0.00045          # 4.5 bp per position change (modelled)
 FUND_DRAG_DAILY = 0.08 / 365       # 8% APR while long
 
@@ -53,6 +72,8 @@ def _last_for(rows: list[dict], coin: str) -> dict | None:
 
 def run_once(coins: list[str]) -> None:
     rows = _load_rows()
+    funding = fetch_funding(coins)
+    summary_lines: list[str] = []
     today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
     new_header = not LOG.exists()
     with open(LOG, "a", newline="") as fh:
@@ -86,9 +107,13 @@ def run_once(coins: list[str]) -> None:
 
             w.writerow([today, coin, f"{close:.2f}", frac, scale, target,
                         f"{(prev_close if prev else close):.2f}" if prev else f"{close:.2f}",
-                        f"{day_ret*100:.4f}", f"{strat_ret*100:.4f}", f"{equity:.4f}"])
+                        f"{day_ret*100:.4f}", f"{strat_ret*100:.4f}", f"{equity:.4f}",
+                        f"{funding.get(coin, 0.0):.8f}"])
+            summary_lines.append(f"{coin}: tgt={target} eq={equity:.0f}")
             print(f"{today} {coin}: close={close:.0f} target={target} "
                   f"day={day_ret*100:+.2f}% strat={strat_ret*100:+.2f}% equity={equity:.2f}")
+    if summary_lines:
+        notify.send(f"[FWD-TEST {today}] " + " | ".join(summary_lines))
 
 
 def report(coins: list[str]) -> None:

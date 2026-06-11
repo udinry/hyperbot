@@ -56,6 +56,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 import config
+import notify
 
 logger = logging.getLogger("trend_bot")
 
@@ -269,6 +270,8 @@ def decide_one(exchange, coin: str, equity_slice: float, current: float,
     if dry_run or exchange is None:
         logger.info("[DRY-RUN/OBSERVER] %s: would %s %s", coin,
                     "BUY" if delta > 0 else "SELL", abs(round(delta, 8)))
+        notify.send(f"[TREND dry-run] {coin}: would {'BUY' if delta > 0 else 'SELL'} "
+                    f"{abs(round(delta, 8))} @ ~{price:.0f} (signal={frac} scale={scale:.2f})")
         return info
 
     is_buy = delta > 0
@@ -284,8 +287,11 @@ def decide_one(exchange, coin: str, equity_slice: float, current: float,
                              reduce_only=False)
         logger.info("Order result: %s", res)
         info["traded"] = True
+        notify.send(f"[TREND] {coin}: {'BUY' if is_buy else 'SELL'} {sz} IOC @ {limit} "
+                    f"(signal={frac} scale={scale:.2f}, target {target})")
     except Exception as exc:
         logger.error("%s rebalance failed: %s", coin, exc, exc_info=True)
+        notify.send(f"[TREND ERROR] {coin} rebalance failed: {exc}")
     return info
 
 
