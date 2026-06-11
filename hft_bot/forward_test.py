@@ -114,6 +114,15 @@ def run_once(coins: list[str]) -> None:
                   f"day={day_ret*100:+.2f}% strat={strat_ret*100:+.2f}% equity={equity:.2f}")
     if summary_lines:
         notify.send(f"[FWD-TEST {today}] " + " | ".join(summary_lines))
+    # shadow book: log the liquid-universe long signals we are NOT trading,
+    # so the filters can be audited against their counterfactual P&L.
+    try:
+        import shadow_book
+        n = shadow_book.log_skipped(traded_coins=set(coins))
+        if n:
+            print(f"shadow book: logged {n} skipped signal(s)")
+    except Exception as exc:
+        print(f"shadow book logging failed (non-fatal): {exc}")
 
 
 def report(coins: list[str]) -> None:

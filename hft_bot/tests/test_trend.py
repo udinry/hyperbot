@@ -149,3 +149,34 @@ def test_drift_verdict_bands():
     assert "DRIFT WARNING" in ft.drift_verdict(bad)
     hot = [0.01 + random.gauss(0, 0.002) for _ in range(90)]
     assert "ABOVE EXPECTATION" in ft.drift_verdict(hot)
+
+
+# ---- shadow book ----
+def test_shadow_book_log_and_resolve(tmp_path, monkeypatch):
+    import shadow_book as sb
+    monkeypatch.setattr(sb, "BOOK", tmp_path / "shadow.csv")
+    # fake scanner: one skipped long candidate, one traded coin, one flat
+    import scan as scan_mod
+    monkeypatch.setattr(scan_mod, "scan", lambda top=20, min_vol_usd=2e6: [
+        {"coin": "ALT", "signal": 1.0, "target": 0.3, "mark": 100.0},
+        {"coin": "BTC", "signal": 1.0, "target": 0.3, "mark": 60000.0},
+        {"coin": "DEAD", "signal": 0.0, "target": 0.0, "mark": 1.0},
+    ])
+    added = sb.log_skipped(traded_coins={"BTC"})
+    assert added == 1                       # only ALT (BTC traded, DEAD flat)
+    assert sb.log_skipped(traded_coins={"BTC"}) == 0   # same-day dedup
+
+    # age the entry 10 days and give ALT a +20% path -> resolves at T+7
+    rows = sb._load()
+    import datetime as real_dt
+    old = (real_dt.datetime.now(real_dt.timezone.utc).date()
+           - real_dt.timedelta(days=10)).strftime("%Y-%m-%d")
+    with open(sb.BOOK, "w", newline="") as fh:
+        import csv as _csv
+        w = _csv.writer(fh); w.writerow(sb.COLUMNS)
+        w.writerow([old, "ALT", "100.0", "1.0", "0.3", "test"])
+    monkeypatch.setattr(sb.trend_bot, "fetch_daily_closes",
+                        lambda coin, days=120: [100.0 + i for i in range(60)])
+    rep = sb.report()
+    assert "T+ 7d: n=1" in rep
+    assert "insufficient resolved data" in rep   # n<20 -> no filter verdict yet

@@ -72,6 +72,15 @@ cd /opt/hyperbot/ai_trader && python agent.py status
   ≥2.5y history. This is the scanner working: it found candidates AND the
   discipline filter correctly refused all of them.
 
+## Counterfactual audit (user-requested, 2026-06-11)
+
+`hft_bot/shadow_book.py` logs every liquid-universe long signal the system
+DECLINES (daily, via the forward-test timer) and resolves their forward
+returns at 7/14/30d. If skipped trades show >60% win-rate and >+2% avg on
+n>=20, the report flags THE FILTER IS TOO STRICT — the system audits its own
+caution in both directions. First live log: 8 skipped signals (HYPE, ZEC,
+WLD, NEAR, ...). Check: `python shadow_book.py --report`.
+
 ## Discipline rules (do not violate)
 
 - Tune only on ≤2021 data; touch 2022+ once per idea, report it.
