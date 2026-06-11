@@ -83,6 +83,14 @@ MIN_HISTORY_D = max(max(SMA_WINDOWS), max(MOM_WINDOWS), REGIME_FILTER_DAYS) + 1
 TREND_COINS = [c.strip().upper() for c in
                os.getenv("TREND_COINS", "BTC").split(",") if c.strip()]
 
+# Execution style for rebalances: "patient" (ALO at the touch, IOC fallback
+# after TREND_EXEC_WAIT_S) or "ioc" (immediate). Patient flips each side from
+# ~-4.5bp (taker+slippage) to ~+1bp (maker rebate); the fallback caps the cost
+# of a runaway market at the old IOC behaviour. Pure cost engineering.
+TREND_EXEC = os.getenv("TREND_EXEC", "patient").lower()
+TREND_EXEC_WAIT_S = int(os.getenv("TREND_EXEC_WAIT_S", "900"))   # 15 min
+TREND_EXEC_POLL_S = int(os.getenv("TREND_EXEC_POLL_S", "15"))
+
 # Capital weighting across TREND_COINS: "invvol" (risk parity, default) or "equal".
 TREND_WEIGHTING = os.getenv("TREND_WEIGHTING", "invvol").lower()
 
@@ -256,6 +264,75 @@ def fetch_account(address: str) -> tuple[float, dict, dict]:
 # ---------------------------------------------------------------------------
 # Decision cycle
 # ---------------------------------------------------------------------------
+def _best_bid_ask(coin: str) -> tuple[float, float] | None:
+    try:
+        book = _post_info({"type": "l2Book", "coin": coin})
+        bid = float(book["levels"][0][0]["px"])
+        ask = float(book["levels"][1][0]["px"])
+        return bid, ask
+    except Exception as exc:
+        logger.warning("%s l2Book fetch failed: %s", coin, exc)
+        return None
+
+
+def _order_open(address: str, oid: int) -> bool:
+    try:
+        orders = _post_info({"type": "openOrders", "user": address})
+        return any(int(o.get("oid", -1)) == oid for o in orders)
+    except Exception:
+        return True   # uncertain -> assume still open, keep waiting
+
+
+def execute_rebalance(exchange, coin: str, delta: float, ref_price: float,
+                      address: str = "",
+                      sleep_fn=time.sleep) -> dict:
+    """Execute a position change. patient: ALO at the touch, poll, IOC the
+    remainder on timeout. ioc: immediate. Returns an execution record."""
+    is_buy = delta > 0
+    sz = abs(round(delta, 8))
+
+    def _ioc(reason: str) -> dict:
+        limit = float(f"{ref_price * (1.005 if is_buy else 0.995):.6g}")
+        res = exchange.order(coin, is_buy, sz, limit,
+                             order_type={"limit": {"tif": "Ioc"}},
+                             reduce_only=False)
+        return {"style": f"ioc ({reason})", "limit": limit, "result": str(res)[:200]}
+
+    if TREND_EXEC != "patient":
+        return _ioc("configured")
+
+    ba = _best_bid_ask(coin)
+    if ba is None:
+        return _ioc("no book")
+    bid, ask = ba
+    limit = bid if is_buy else ask          # join the touch, post-only
+    res = exchange.order(coin, is_buy, sz, limit,
+                         order_type={"limit": {"tif": "Alo"}},
+                         reduce_only=False)
+    oid = None
+    try:
+        st = res["response"]["data"]["statuses"][0]
+        oid = int(st.get("resting", {}).get("oid", 0)) or None
+        if "error" in st:                    # ALO rejected (would cross)
+            return _ioc("alo rejected")
+    except (KeyError, TypeError, ValueError):
+        pass
+    if oid is None:
+        return _ioc("no oid")
+
+    waited = 0
+    while waited < TREND_EXEC_WAIT_S:
+        sleep_fn(TREND_EXEC_POLL_S)
+        waited += TREND_EXEC_POLL_S
+        if not _order_open(address, oid):
+            return {"style": "maker filled", "limit": limit, "waited_s": waited}
+    try:
+        exchange.cancel(coin, oid)
+    except Exception as exc:
+        logger.warning("%s cancel %s failed: %s", coin, oid, exc)
+    return _ioc("timeout fallback")
+
+
 def decide_one(exchange, coin: str, equity_slice: float, current: float,
                price: float, dry_run: bool, closes: list[float] | None = None) -> dict:
     if closes is None:
@@ -287,21 +364,18 @@ def decide_one(exchange, coin: str, equity_slice: float, current: float,
                     f"{abs(round(delta, 8))} @ ~{price:.0f} (signal={frac} scale={scale:.2f})")
         return info
 
-    is_buy = delta > 0
-    limit = price * (1.005 if is_buy else 0.995)
-    # tick rounding: use a conservative 6-sig-digit round (per-coin ticks vary)
-    limit = float(f"{limit:.6g}")
     sz = abs(round(delta, 8))
-    logger.info("REBALANCE %s | %s %s IOC @ %s", coin,
-                "BUY" if is_buy else "SELL", sz, limit)
+    logger.info("REBALANCE %s | %s %s (%s execution)", coin,
+                "BUY" if delta > 0 else "SELL", sz, TREND_EXEC)
     try:
-        res = exchange.order(coin, is_buy, sz, limit,
-                             order_type={"limit": {"tif": "Ioc"}},
-                             reduce_only=False)
-        logger.info("Order result: %s", res)
+        rec = execute_rebalance(exchange, coin, delta, price,
+                                address=os.getenv("ACCOUNT_ADDRESS", ""))
+        logger.info("Execution: %s", rec)
         info["traded"] = True
-        notify.send(f"[TREND] {coin}: {'BUY' if is_buy else 'SELL'} {sz} IOC @ {limit} "
-                    f"(signal={frac} scale={scale:.2f}, target {target})")
+        info["execution"] = rec
+        notify.send(f"[TREND] {coin}: {'BUY' if delta > 0 else 'SELL'} {sz} "
+                    f"via {rec['style']} (signal={frac} scale={scale:.2f}, "
+                    f"target {target})")
     except Exception as exc:
         logger.error("%s rebalance failed: %s", coin, exc, exc_info=True)
         notify.send(f"[TREND ERROR] {coin} rebalance failed: {exc}")

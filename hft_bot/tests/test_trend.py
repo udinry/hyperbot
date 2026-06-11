@@ -180,3 +180,64 @@ def test_shadow_book_log_and_resolve(tmp_path, monkeypatch):
     rep = sb.report()
     assert "T+ 7d: n=1" in rep
     assert "insufficient resolved data" in rep   # n<20 -> no filter verdict yet
+
+
+# ---- patient execution ----
+class _ExecFake:
+    def __init__(self, alo_reject=False):
+        self.orders = []; self.cancels = []
+        self.alo_reject = alo_reject
+    def order(self, coin, is_buy, sz, px, order_type=None, reduce_only=False):
+        self.orders.append((coin, is_buy, sz, px, order_type))
+        if "limit" in order_type and order_type["limit"]["tif"] == "Alo":
+            if self.alo_reject:
+                return {"response": {"data": {"statuses": [{"error": "would cross"}]}}}
+            return {"response": {"data": {"statuses": [{"resting": {"oid": 77}}]}}}
+        return {"response": {"data": {"statuses": [{"filled": {"oid": 78}}]}}}
+    def cancel(self, coin, oid):
+        self.cancels.append(oid)
+
+
+def _patch_book(monkeypatch, bid=60000.0, ask=60001.0):
+    monkeypatch.setattr(tb, "_best_bid_ask", lambda coin: (bid, ask))
+
+
+def test_patient_exec_maker_fill(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "patient")
+    _patch_book(monkeypatch)
+    monkeypatch.setattr(tb, "_order_open", lambda addr, oid: False)  # fills fast
+    ex = _ExecFake()
+    rec = tb.execute_rebalance(ex, "BTC", 0.001, 60000.5, sleep_fn=lambda s: None)
+    assert rec["style"] == "maker filled"
+    assert ex.orders[0][4] == {"limit": {"tif": "Alo"}}
+    assert ex.orders[0][3] == 60000.0          # joined the bid
+    assert not ex.cancels
+
+
+def test_patient_exec_timeout_falls_back_to_ioc(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "patient")
+    monkeypatch.setattr(tb, "TREND_EXEC_WAIT_S", 30)
+    monkeypatch.setattr(tb, "TREND_EXEC_POLL_S", 15)
+    _patch_book(monkeypatch)
+    monkeypatch.setattr(tb, "_order_open", lambda addr, oid: True)   # never fills
+    ex = _ExecFake()
+    rec = tb.execute_rebalance(ex, "BTC", 0.001, 60000.5, sleep_fn=lambda s: None)
+    assert rec["style"].startswith("ioc (timeout")
+    assert ex.cancels == [77]
+    assert ex.orders[-1][4] == {"limit": {"tif": "Ioc"}}
+
+
+def test_patient_exec_alo_rejected_goes_ioc(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "patient")
+    _patch_book(monkeypatch)
+    ex = _ExecFake(alo_reject=True)
+    rec = tb.execute_rebalance(ex, "BTC", -0.001, 60000.5, sleep_fn=lambda s: None)
+    assert rec["style"].startswith("ioc (alo rejected")
+
+
+def test_exec_configured_ioc(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "ioc")
+    ex = _ExecFake()
+    rec = tb.execute_rebalance(ex, "BTC", 0.001, 60000.0, sleep_fn=lambda s: None)
+    assert rec["style"] == "ioc (configured)"
+    assert ex.orders[0][4] == {"limit": {"tif": "Ioc"}}
