@@ -63,6 +63,13 @@ def regime_trigger_pct(closes: list[float]) -> float | None:
     return (sma - closes[-1]) / closes[-1] * 100
 
 
+# Liquidity floor for tradeable candidates. JELLY (Mar'25) and XPL (Aug'25)
+# manipulation incidents on Hyperliquid all targeted thin / pre-launch / meme
+# markets — never deep majors. A coin must clear this 24h volume to be flagged
+# a candidate, regardless of signal. See MARKET_NOTES.md.
+CANDIDATE_MIN_VOL_USD = 50e6
+
+
 def scan(top: int = 20, min_vol_usd: float = 2e6) -> list[dict]:
     rows = []
     for asset in universe_by_volume(min_vol_usd)[:top]:
@@ -106,7 +113,12 @@ def main() -> None:
         print(f"{r['coin']:8} {r['day_vol_usd']/1e6:>10.1f} {r['signal']:>7.2f} "
               f"{r['target']:>7.3f} {trig_s:>14} {apr:>11.1f}%")
         if r["target"] and r["target"] > 0:
-            longs.append(r["coin"])
+            if r["day_vol_usd"] >= CANDIDATE_MIN_VOL_USD:
+                longs.append(r["coin"])
+            else:
+                print(f"         ^ {r['coin']} LONG signal but 24h vol "
+                      f"${r['day_vol_usd']/1e6:.0f}M < ${CANDIDATE_MIN_VOL_USD/1e6:.0f}M "
+                      f"floor — manipulation risk, NOT a candidate")
     print()
     if longs:
         print(f"LONG candidates (validated signal): {', '.join(longs)}")

@@ -241,3 +241,23 @@ def test_exec_configured_ioc(monkeypatch):
     rec = tb.execute_rebalance(ex, "BTC", 0.001, 60000.0, sleep_fn=lambda s: None)
     assert rec["style"] == "ioc (configured)"
     assert ex.orders[0][4] == {"limit": {"tif": "Ioc"}}
+
+
+def test_scan_liquidity_floor_excludes_thin_markets(monkeypatch):
+    import sys, io, contextlib
+    import scan as scan_mod
+    monkeypatch.setattr(scan_mod, "universe_by_volume", lambda mv=2e6: [
+        {"coin": "BIGML", "day_vol_usd": 80e6, "mark": 100.0, "funding_hr": 0.0},
+        {"coin": "THINX", "day_vol_usd": 5e6, "mark": 1.0, "funding_hr": 0.0},
+    ])
+    monkeypatch.setattr(scan_mod.trend_bot, "fetch_daily_closes",
+                        lambda coin, days=400: _series(50_000, 100_000, 200))
+    monkeypatch.setattr(scan_mod.trend_bot, "MIN_HISTORY_D", 151)
+    monkeypatch.setattr(sys, "argv", ["scan.py"])   # clean argparse
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        scan_mod.main()
+    out = buf.getvalue()
+    assert "BIGML" in out
+    assert "THINX LONG signal but" in out and "NOT a candidate" in out
+    assert "LONG candidates (validated signal): BIGML" in out

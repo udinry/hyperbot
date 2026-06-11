@@ -48,3 +48,25 @@ from the validated signal.
 exactly the discretionary trading the architecture exists to prevent. Safety
 and explanation are legitimate context roles; position-setting is not. Verified
 live (headlines fetch) + 2 unit tests (dedup, unreachable-feed handling).
+
+
+## 2026-06-11 (c) — Hyperliquid venue risk → majors-only is a SAFETY rule
+
+Studied HL's incident history and mechanics (OAK Research, Talos, DL News,
+Messari, HL docs):
+- **JELLY (Mar 2025):** attacker shorted a meme token, pumped spot +400%,
+  threatened the HLP vault; validators emergency-delisted and settled at a
+  fixed price. **XPL (Aug 2025):** pre-launch flash short-squeeze, manipulators
+  made ~$46M in <1h, users lost >$60M. Both — and a third 2025 episode — hit
+  THIN / pre-launch / meme markets. Deep majors (BTC/ETH) were never targeted.
+- **Mechanics worth knowing:** funding settles HOURLY (granular vs 8h CEXes);
+  interest component 0.01%/8h. Oracle = weighted median of 8 CEX spot prices
+  (Binance 3, OKX/Bybit 2, others 1) + HL mid — robust for majors, thinner
+  basis for low-liquidity coins.
+
+**Implication for us (ACTIONED):** the manipulation surface is illiquidity, not
+the venue itself. Encoded a hard $50M/24h volume floor in scan.py — a coin can
+flash a perfect trend signal and still be refused as a candidate if it's thin.
+This makes "majors-only" a *coded safety rule*, not just a preference, and is
+independent of the AI's get_news halt (defense in depth). BTC/ETH/SOL all clear
+it comfortably; the alt signals we already rejected were all thin anyway.
