@@ -37,16 +37,15 @@ cd /opt/hyperbot/ai_trader && python agent.py status
 
 ## Research backlog (priority order) — pick up here
 
-1. **Forward-test harness**: script that appends the daily signal + a
-   hypothetical equity mark to a CSV, so live decisions accrue into an
-   auditable track record vs the backtest expectation. (Highest value.)
+1. ~~Forward-test harness~~ **DONE** — `hft_bot/forward_test.py` + daily
+   systemd timer; first live marks logged 2026-06-11.
 2. **Funding-carry sleeve**: market-neutral income when funding is extreme — the
    only honest route to smoother *months*. Needs deeper funding history than the
    ~3 months OKX exposes; find a source or accumulate it live first.
 3. **Cross-asset portfolio sizing**: risk-parity weights across BTC/ETH/SOL
    instead of equal — should lift the portfolio Sharpe above 0.50.
-4. **Regime-filter robustness**: confirm 150d isn't a lucky pick — walk-forward
-   the filter window (120/150/180) across rolling splits; check on ETH/SOL.
+4. ~~Regime-filter robustness~~ **DONE** — plateau confirmed (100–250d all
+   beat no-filter, Sharpe 0.70–0.93); frozen 150d transfers to ETH/SOL.
 5. **Telegram integration**: route `trend_bot`/`agent` daily decisions through
    the existing `monitor/telegram_monitor.py` for push alerts.
 6. **Quarterly re-validation**: re-run `research_trend.py` + `research_regime.py`

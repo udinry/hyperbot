@@ -69,6 +69,14 @@ The filter turns the worst year (−32%) into a scratch (−4%) — exactly what
 regime overlay is supposed to do. It costs a little in whippy chop (2025/2026
 slightly worse) but the drawdown reduction dominates.
 
+
+### Regime-filter robustness (post-hoc checks, fully reported)
+
+- **Parameter plateau (BTC OOS)**: every window 100–250d beats no-filter
+  (Sharpe 0.70–0.93 vs 0.59); 150d sits on a broad hill, not a spike.
+- **Frozen transfer**: the same 150d filter, never tuned on ETH/SOL, improves
+  both — ETH Sharpe 0.45→0.63, SOL 0.27→0.38 (OOS 2022+).
+
 The pattern is the documented trend-following signature: give up part of the
 bull, skip most of the bear, much better compounding per unit of pain.
 
