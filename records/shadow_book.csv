@@ -1,0 +1,8 @@
+date,coin,price,signal,target,reason_skipped
+2026-06-11,HYPE,56.488,1.0,0.302,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-06-11,ZEC,428.47,0.75,0.164,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-06-11,WLD,0.49415,1.0,0.168,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-06-11,NEAR,2.0138,1.0,0.252,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-06-11,LIT,1.4419,1.0,0.224,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-06-11,VVV,13.773,0.75,0.193,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-06-11,TON,1.6647,0.75,0.269,not in TREND_COINS (failed vetting or unvetted short-history alt)
