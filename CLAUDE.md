@@ -25,7 +25,7 @@ hyperbot/
 > edge vs >2bp costs at 1-min horizon, and live paper trading produced ~0
 > fills/hour (see `hft_bot/BACKTEST_FINDINGS.md`). The validated system is
 > **Trend Bot v2** (`trend_bot.py`): daily vol-targeted trend ensemble,
-> OOS 2022–2026 +13.1% CAGR / 32.7% MaxDD vs buy-and-hold +5.9% / 67%
+> OOS 2022–2026 +21.2% CAGR / 22.2% MaxDD vs buy-and-hold +5.9% / 67%
 > (`hft_bot/STRATEGY_V2.md`). Run ONE bot per account, not both.
 
 ### Files
