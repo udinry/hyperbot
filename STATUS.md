@@ -59,6 +59,19 @@ cd /opt/hyperbot/ai_trader && python agent.py status
 6. **Quarterly re-validation**: re-run `research_trend.py` + `research_regime.py`
    as new data arrives; watch for parameter drift.
 
+## Live operator log
+
+**2026-06-11 — market-wide scan + candidate vetting (scan.py / vet_candidates.py):**
+- Majors BTC/ETH/SOL all FLAT (downtrend; need +18% / +34% / +38% to flip the
+  150d regime gate). Correct trade across the board: cash.
+- Scanner found 10 raw long signals in alts; vetting on full history with the
+  frozen strategy REJECTED 8. Only HYPE (Sharpe 1.57) and VVV (1.90) pass, and
+  BOTH have <1.5y history → UNRELIABLE, not addable. Most "long" alts fail
+  because their history is short and selection-biased (liquid = they pumped).
+- Decision: no new positions. Watchlist (HYPE, VVV) revisited once each has
+  ≥2.5y history. This is the scanner working: it found candidates AND the
+  discipline filter correctly refused all of them.
+
 ## Discipline rules (do not violate)
 
 - Tune only on ≤2021 data; touch 2022+ once per idea, report it.
