@@ -163,3 +163,33 @@ def test_signal_gate_allows_reduce_only_exit(execu, monkeypatch):
         "coin": "BTC", "side": "SELL", "size": 0.001, "reduce_only": True,
         "rationale": "model went flat; closing"})
     assert not err and out["dry_run"]
+
+
+def test_get_news_returns_headlines(execu, monkeypatch):
+    import xml.etree.ElementTree as ET
+    sample = (b'<rss><channel>'
+              b'<item><title>BTC tags $63K as inflation data lands</title></item>'
+              b'<item><title>SEC comments on ETF flows</title></item>'
+              b'<item><title>BTC tags $63K as inflation data lands</title></item>'  # dup
+              b'</channel></rss>')
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: type("R", (), {
+                            "read": lambda self: sample,
+                            "__enter__": lambda self: self,
+                            "__exit__": lambda self, *x: False})())
+    out, err = execu.execute("get_news", {"limit": 5})
+    assert not err and out["ok"]
+    assert "BTC tags $63K as inflation data lands" in out["headlines"]
+    # de-dupe worked
+    assert out["headlines"].count("BTC tags $63K as inflation data lands") == 1
+    assert "does NOT change position" in out["reminder"]
+
+
+def test_get_news_handles_unreachable_feeds(execu, monkeypatch):
+    import urllib.request
+    def _boom(*a, **k):
+        raise OSError("network down")
+    monkeypatch.setattr(urllib.request, "urlopen", _boom)
+    out, err = execu.execute("get_news", {})
+    assert err and "no headlines" in out["error"]

@@ -62,6 +62,20 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "get_news",
+        "description": (
+            "Return recent crypto-market headlines (read-only, from public RSS). "
+            "Use this for TWO purposes ONLY: (1) operational safety — if "
+            "headlines indicate an exchange hack, stablecoin depeg, Hyperliquid "
+            "outage, or similar infrastructure risk, call halt_trading; (2) to "
+            "EXPLAIN market context in your summary. You MUST NOT let headlines "
+            "change the position you take — the validated signal is the only "
+            "thing that sets direction/size. News never overrides the model."
+        ),
+        "input_schema": {"type": "object", "properties": {
+            "limit": {"type": "integer", "description": "headlines to return (<=15)"}}},
+    },
+    {
         "name": "place_order",
         "description": (
             "Request to place a market-ish IOC order to move toward a target "
@@ -183,6 +197,33 @@ class ToolExecutor:
                 "change_7d_pct": round((closes[-1]/closes[-8]-1)*100, 2),
                 "change_30d_pct": round((closes[-1]/closes[-31]-1)*100, 2),
                 "realized_vol_ann_pct": round(vol*100, 1)}, False
+
+    def _tool_get_news(self, args):
+        import urllib.request, xml.etree.ElementTree as ET
+        limit = min(int(args.get("limit", 8) or 8), 15)
+        feeds = ["https://www.coindesk.com/arc/outboundfeeds/rss/",
+                 "https://cointelegraph.com/rss"]
+        heads = []
+        for url in feeds:
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                raw = urllib.request.urlopen(req, timeout=10).read()
+                root = ET.fromstring(raw)
+                for it in root.findall(".//item")[:limit]:
+                    t = (it.findtext("title") or "").strip()
+                    if t:
+                        heads.append(t)
+            except Exception as exc:
+                logger.warning("news feed %s failed: %s", url, exc)
+        if not heads:
+            return {"ok": False, "error": "no headlines (feeds unreachable)"}, True
+        # de-dupe, cap
+        seen, uniq = set(), []
+        for h in heads:
+            if h not in seen:
+                seen.add(h); uniq.append(h)
+        return {"ok": True, "headlines": uniq[:limit],
+                "reminder": "context/safety only — does NOT change position"}, False
 
     # ---- write tools (risk-gated) ----
     def _tool_place_order(self, args):

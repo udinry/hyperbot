@@ -24,7 +24,9 @@ ensemble** (`hft_bot/STRATEGY_V2.md`: +21.2% CAGR / 22.2% MaxDD OOS 2022–2026 
 buy-and-hold, regime-filtered, frozen-parameter-confirmed on ETH/SOL). The AI's job is the part
 it's actually good at: reading state, applying judgment about *when/whether* to
 rebalance, explaining decisions auditably, and stopping when something looks
-wrong. Every order passes through `risk_engine.py` — plain Python limits that
+wrong, and reading market news for SAFETY and CONTEXT (an exchange hack or
+depeg triggers the kill switch — but news never sets the position; the signal
+does). Every order passes through `risk_engine.py` — plain Python limits that
 run after the model and before the exchange. No prompt or hallucination gets
 past them.
 
