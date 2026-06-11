@@ -21,15 +21,15 @@ Execution: rebalance at most once daily after UTC close; IOC orders; only when
 Costs    : modelled at 4.5bp/side + 8% APR funding drag while long; results
            held at 0%/8%/15% funding sensitivity.
 
-EVIDENCE (full methodology in STRATEGY_V2.md)
----------------------------------------------
+EVIDENCE (v2.1 with 150d regime filter; full methodology in STRATEGY_V2.md)
+---------------------------------------------------------------------------
                        CAGR    MaxDD   Sharpe
-  OOS 2022-2026 bot   +13.1%   32.7%    0.59
+  OOS 2022-2026 bot   +21.2%   22.2%    0.88
   OOS buy-and-hold     +5.9%   67.0%    0.37
-2022 bear: bot -32% vs B&H -65%. 2026 bear-to-date: -11% vs -31%.
-Expectation honesty: ~13%/yr is the OOS estimate, with 30%+ drawdowns possible
-and negative years expected (2022, 2026). This is not a money printer; it is a
-positive-expectancy system with documented risk.
+2022 bear: bot -4.3% vs B&H -65%. 2026 bear-to-date: -16% vs -31%.
+Expectation honesty: ~15-21%/yr is the OOS estimate, with 20%+ drawdowns
+possible and negative years expected. Not a money printer; a positive-
+expectancy system with documented risk.
 
 USAGE
 -----
@@ -191,14 +191,27 @@ def risk_parity_weights(vols: dict[str, float], cap: float = 0.5) -> dict[str, f
 # ---------------------------------------------------------------------------
 # Hyperliquid I/O (REST; daily cadence needs no websockets)
 # ---------------------------------------------------------------------------
-def _post_info(payload: dict, timeout: int = 15):
-    req = urllib.request.Request(
-        config.API_URL.rstrip("/") + "/info",
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read())
+def _post_info(payload: dict, timeout: int = 15, retries: int = 3):
+    """POST to /info with retry+backoff — a transient 503 must not crash a
+    daily decision cycle (observed live 2026-06-11)."""
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(
+                config.API_URL.rstrip("/") + "/info",
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read())
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                delay = 2.0 * (2 ** attempt)
+                logger.warning("info request failed (%s) — retry %d/%d in %.0fs",
+                               exc, attempt + 1, retries, delay)
+                time.sleep(delay)
+    raise last_exc
 
 
 def fetch_daily_closes(coin: str, days: int = 400) -> list[float]:

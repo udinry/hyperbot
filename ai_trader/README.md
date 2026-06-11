@@ -20,8 +20,8 @@ You ──"status" / "trade" / "stop"──► agent.py (Claude, the operator)
 
 An LLM cannot backtest its own market opinions, so letting it predict prices is
 how you lose money with confidence. Here the **edge is the validated trend
-ensemble** (`hft_bot/STRATEGY_V2.md`: +13.1% CAGR OOS 2022–2026 vs +5.9%
-buy-and-hold, frozen-parameter-confirmed on ETH/SOL). The AI's job is the part
+ensemble** (`hft_bot/STRATEGY_V2.md`: +21.2% CAGR / 22.2% MaxDD OOS 2022–2026 vs +5.9%/67%
+buy-and-hold, regime-filtered, frozen-parameter-confirmed on ETH/SOL). The AI's job is the part
 it's actually good at: reading state, applying judgment about *when/whether* to
 rebalance, explaining decisions auditably, and stopping when something looks
 wrong. Every order passes through `risk_engine.py` — plain Python limits that
@@ -74,7 +74,7 @@ same command is narrated and reasoned by Claude.
 ## Honest expectations
 
 This does not change the edge — it operates the same validated strategy with a
-conversational interface and a safety cage. Expect ~13%/yr with 30%+ drawdowns
+conversational interface and a safety cage. Expect ~15–21%/yr with 20%+ drawdowns
 and losing months (see `hft_bot/STRATEGY_V2.md` bootstrap). The AI adds
 usability, auditability, and judgment — not extra alpha. Run **one** bot per
 account (this or `trend_bot.py`, not both).

@@ -128,9 +128,10 @@ thin pickings at retail) or lying.
 
 ## Honest expectations — read this before going live
 
-- **The OOS estimate is ~13%/yr with ~33% worst drawdown.** On a $160 account
-  that is roughly **+$21/year in expectation**, with −$50 swings possible.
-  Negative *years* are expected (2022, 2026 YTD were both negative).
+- **The v2.1 OOS estimate is ~21%/yr with ~22% worst drawdown** (Sharpe 0.88
+  carries a standard error of ~±0.55 on 4.4y — plan around 10–20%/yr). On a
+  $160 account that is **+$25–35/year in expectation**, with −$35 swings
+  possible. Negative *years* are still expected (2026 YTD is one).
 - This is a **positive-expectancy system with documented risk**, not a money
   printer. Its value scales with capital; the system is identical at $160 or
   $160k (BTC liquidity is not a constraint at these sizes).
@@ -138,8 +139,8 @@ thin pickings at retail) or lying.
   downtrend. A correct system spends bear markets mostly in cash. Do not
   interpret "it isn't trading" as "it isn't working"; 2022 is what not trading
   is worth.
-- Single asset = concentration risk. The same ensemble extends to ETH/SOL etc.
-  for diversification (future work).
+- Multi-asset (`TREND_COINS=BTC,ETH,SOL` with risk-parity weights) is built
+  and validated; recommended at ≳$1,000 equity.
 
 ## Deployment
 
