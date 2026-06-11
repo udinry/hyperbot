@@ -44,3 +44,6 @@ date,coin,price,signal,target,reason_skipped
 2026-01-02,DOGE,0.084763,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
 2026-01-02,FARTCOIN,0.1158,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
 2026-01-02,AAVE,62.854,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-06-11,HMSTR,0.000298,1.0,0.194,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-01-01,HMSTR,0.000298,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-01-02,HMSTR,0.000298,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
