@@ -148,12 +148,109 @@ def _write_audit(execu: ToolExecutor, summary: str) -> None:
     logger.info("audit appended (%d action(s))", len(execu.audit))
 
 
+def preflight() -> bool:
+    """GO/NO-GO checklist for live trading. Deterministic, no LLM.
+    Everything needed so that 'start trading' is a single human prompt."""
+    import subprocess
+    cfg = settings.load()
+    checks: list[tuple[str, bool, str]] = []
+
+    def add(name, ok, detail="", required=True):
+        checks.append((name, ok, detail, required))
+
+    add("PRIVATE_KEY present", not cfg.observer_mode,
+        "" if not cfg.observer_mode else "set PRIVATE_KEY in /opt/hyperbot/.env")
+    add("ANTHROPIC_API_KEY present (optional, for AI narration)",
+        bool(cfg.anthropic_api_key), "deterministic mode works without it",
+        required=False)
+    add("mainnet API URL", "testnet" not in cfg.api_url, cfg.api_url)
+
+    # account reachable + funded
+    equity = 0.0
+    try:
+        _, execu = build_runtime(live=False)
+        snap = execu.account_snapshot()
+        equity = snap["equity_usd"]
+        add("exchange reachable", True)
+        add("perp equity >= $50", equity >= 50, f"${equity:.2f}")
+    except Exception as exc:
+        add("exchange reachable", False, str(exc))
+
+    # risk limits sane relative to equity
+    lim = cfg.risk_limits
+    add("risk: max_order <= max_position <= exposure",
+        lim.max_order_usd <= lim.max_position_usd <= lim.max_total_exposure_usd,
+        f"order ${lim.max_order_usd} pos ${lim.max_position_usd} "
+        f"gross ${lim.max_total_exposure_usd}")
+    if equity > 0:
+        add("risk: exposure cap <= 1.5x equity",
+            lim.max_total_exposure_usd <= 1.5 * equity + 1e-9,
+            f"cap ${lim.max_total_exposure_usd} vs equity ${equity:.2f}")
+        add("risk: daily loss cap <= 10% equity",
+            lim.max_daily_loss_usd <= 0.10 * equity + 1e-9,
+            f"${lim.max_daily_loss_usd} vs ${equity:.2f}")
+
+    # signal computable for every coin
+    for coin in lim.allowed_coins:
+        try:
+            import strategy_bridge
+            sig = strategy_bridge.strategy_signal(coin)
+            add(f"signal computable: {coin}", True,
+                f"target={sig['target_fraction']}")
+        except Exception as exc:
+            add(f"signal computable: {coin}", False, str(exc))
+
+    # both test suites
+    here = Path(__file__).resolve().parent
+    for name, path in [("ai_trader tests", here / "tests"),
+                       ("hft_bot tests", here.parent / "hft_bot" / "tests")]:
+        r = subprocess.run([sys.executable, "-m", "pytest", str(path), "-q",
+                            "--no-header", "-x"],
+                           capture_output=True, text=True,
+                           cwd=str(path.parent))
+        add(name, r.returncode == 0,
+            (r.stdout.strip().splitlines() or ["?"])[-1])
+
+    # forward-test drift verdict (the profitability gate)
+    try:
+        sys.path.insert(0, str(here.parent / "hft_bot"))
+        import forward_test as ft
+        rows = ft._load_rows()
+        by_date: dict = {}
+        for r in rows:
+            by_date.setdefault(r["date"], []).append(
+                float(r["strategy_day_return_pct"]) / 100)
+        pooled = [sum(v) / len(v) for d, v in sorted(by_date.items())][1:]
+        verdict = ft.drift_verdict(pooled) if pooled else "NO FORWARD RECORD YET"
+        ok = verdict.startswith(("WITHIN", "FLAT", "ABOVE"))
+        add("forward-test drift verdict", ok, verdict)
+    except Exception as exc:
+        add("forward-test drift verdict", False, str(exc))
+
+    print()
+    print("================ GO-LIVE PREFLIGHT ================")
+    all_ok = True
+    for name, ok, detail, required in checks:
+        mark = "PASS" if ok else ("FAIL" if required else "WARN")
+        if required:
+            all_ok &= ok
+        print(f"  [{mark}] {name}" + (f" — {detail}" if detail else ""))
+    print("---------------------------------------------------")
+    print(f"  VERDICT: {'GO — run: python agent.py trade --live' if all_ok else 'NO-GO — fix FAILs above'}")
+    print("===================================================")
+    print()
+    return all_ok
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["status", "trade", "loop"])
+    ap.add_argument("command", choices=["status", "trade", "loop", "preflight"])
     ap.add_argument("--live", action="store_true", help="enable REAL orders")
     ap.add_argument("--interval", type=int, default=86400, help="loop seconds")
     args = ap.parse_args()
+
+    if args.command == "preflight":
+        sys.exit(0 if preflight() else 1)
 
     coins = ", ".join(settings.load().risk_limits.allowed_coins)
     if args.command == "status":
