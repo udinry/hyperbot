@@ -118,3 +118,17 @@ def test_forward_test_compounds_and_dedups(tmp_path, monkeypatch):
     assert strat == pytest.approx(prev_target * 0.01
                                   - ft.FUND_DRAG_DAILY * prev_target, abs=2e-4)
     assert eq == pytest.approx(1000 * (1 + strat), abs=0.05)
+
+
+def test_risk_parity_weights_inverse_vol_and_cap():
+    # cap not binding: weights exactly inverse to vol
+    w = tb.risk_parity_weights({"BTC": 0.40, "ETH": 0.60, "SOL": 0.80})
+    assert w["BTC"] == pytest.approx(1.5 * w["ETH"], rel=1e-6)   # 0.60/0.40
+    assert w["BTC"] == pytest.approx(2.0 * w["SOL"], rel=1e-6)   # 0.80/0.40
+    assert sum(w.values()) == pytest.approx(1.0)
+    # extreme vol gap: cap binds and excess redistributes, cap still respected
+    w = tb.risk_parity_weights({"BTC": 0.10, "ETH": 5.0, "SOL": 5.0})
+    assert w["BTC"] == pytest.approx(0.5)
+    assert max(w.values()) <= 0.5 + 1e-9
+    assert sum(w.values()) == pytest.approx(1.0)
+    assert tb.risk_parity_weights({}) == {}

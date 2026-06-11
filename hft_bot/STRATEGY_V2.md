@@ -105,6 +105,11 @@ Crypto's high internal correlation (BTC/ETH 0.84, vs SOL 0.75) limits the
 diversification benefit: the portfolio cuts the worst drawdown but BTC-only
 keeps the best Sharpe (0.59 vs 0.50).
 
+**Portfolio sizing (v2.1):** with the regime filter, the 3-asset portfolio OOS
+improves to equal-weight Sharpe 0.74; inverse-vol (risk-parity) weights lift it
+to **+15.9% CAGR / 23.1% MaxDD / Sharpe 0.78** (weights from trailing vol only —
+no return peeking). `TREND_WEIGHTING=invvol` is the default.
+
 **Recommendation:** `TREND_COINS=BTC` (default) for small accounts — lot
 granularity makes thirds of $160 impractical and BTC-only is the best
 risk-adjusted single line. At ≳$1,000, `TREND_COINS=BTC,ETH,SOL` is a

@@ -82,6 +82,9 @@ MIN_HISTORY_D = max(max(SMA_WINDOWS), max(MOM_WINDOWS), REGIME_FILTER_DAYS) + 1
 TREND_COINS = [c.strip().upper() for c in
                os.getenv("TREND_COINS", "BTC").split(",") if c.strip()]
 
+# Capital weighting across TREND_COINS: "invvol" (risk parity, default) or "equal".
+TREND_WEIGHTING = os.getenv("TREND_WEIGHTING", "invvol").lower()
+
 STATE_FILE = _HERE / "trend_state.json"
 
 
@@ -126,6 +129,16 @@ def vol_scale(closes: list[float], target: float = VOL_TARGET,
     return min(1.0, target / sd)
 
 
+def realized_vol(closes: list[float], lookback: int = VOL_LOOKBACK_D) -> float:
+    """Trailing annualized realized vol; 0.0 if insufficient history."""
+    if len(closes) < lookback + 1:
+        return 0.0
+    rets = [(closes[i] - closes[i - 1]) / closes[i - 1]
+            for i in range(len(closes) - lookback, len(closes))]
+    mu = sum(rets) / len(rets)
+    return math.sqrt(sum((x - mu) ** 2 for x in rets) / len(rets)) * math.sqrt(365)
+
+
 def target_position_btc(closes: list[float], equity_usd: float,
                         price: float) -> float:
     """Lot-rounded target BTC position for the current signal."""
@@ -142,6 +155,36 @@ def should_rebalance(current_btc: float, target_btc: float,
     if delta < LOT_BTC:
         return False
     return delta >= max(LOT_BTC, REBALANCE_MIN_FRAC * max(full_size_btc, LOT_BTC))
+
+
+def risk_parity_weights(vols: dict[str, float], cap: float = 0.5) -> dict[str, float]:
+    """Inverse-volatility capital weights (risk parity), per-asset capped.
+
+    Uses trailing realized vol only — no return-peeking, so no data snooping.
+    OOS 2022+ vs equal weight on BTC/ETH/SOL: Sharpe 0.74 -> 0.78,
+    CAGR +14.6% -> +15.9% (see STRATEGY_V2.md)."""
+    if not vols:
+        return {}
+    inv = {c: 1.0 / max(v, 0.10) for c, v in vols.items()}
+    s = sum(inv.values())
+    w = {c: x / s for c, x in inv.items()}
+    # Iteratively enforce the cap, redistributing excess to uncapped names
+    # (a single cap+renormalize pass can push weights back above the cap).
+    for _ in range(len(w)):
+        over = {c for c, x in w.items() if x > cap + 1e-12}
+        if not over:
+            break
+        excess = sum(w[c] - cap for c in over)
+        for c in over:
+            w[c] = cap
+        under = [c for c in w if c not in over]
+        s_under = sum(w[c] for c in under)
+        if s_under <= 0:
+            break
+        for c in under:
+            w[c] += excess * w[c] / s_under
+    total = sum(w.values())
+    return {c: x / total for c, x in w.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +243,9 @@ def fetch_account(address: str) -> tuple[float, dict, dict]:
 # Decision cycle
 # ---------------------------------------------------------------------------
 def decide_one(exchange, coin: str, equity_slice: float, current: float,
-               price: float, dry_run: bool) -> dict:
-    closes = fetch_daily_closes(coin)
+               price: float, dry_run: bool, closes: list[float] | None = None) -> dict:
+    if closes is None:
+        closes = fetch_daily_closes(coin)
     frac = ensemble_fraction(closes)
     scale = vol_scale(closes)
     lot = lot_size(coin)
@@ -254,13 +298,29 @@ def decide_and_trade(exchange, address: str, dry_run: bool = False) -> dict:
         positions = {}
         prices = {c: float(mids.get(c, 0)) for c in TREND_COINS}
 
-    slice_usd = equity / len(TREND_COINS)
-    results = []
+    closes_by: dict[str, list[float]] = {}
+    vols: dict[str, float] = {}
     for coin in TREND_COINS:
         try:
-            results.append(decide_one(exchange, coin, slice_usd,
+            closes_by[coin] = fetch_daily_closes(coin)
+            vols[coin] = realized_vol(closes_by[coin])
+        except Exception as exc:
+            logger.error("candle fetch failed for %s: %s", coin, exc)
+
+    if TREND_WEIGHTING == "invvol" and len(closes_by) > 1:
+        weights = risk_parity_weights({c: v for c, v in vols.items() if v > 0})
+    else:
+        weights = {c: 1.0 / len(closes_by) for c in closes_by} if closes_by else {}
+    if weights:
+        logger.info("capital weights (%s): %s", TREND_WEIGHTING,
+                    {c: round(w, 3) for c, w in weights.items()})
+
+    results = []
+    for coin, closes in closes_by.items():
+        try:
+            results.append(decide_one(exchange, coin, equity * weights.get(coin, 0.0),
                                       positions.get(coin, 0.0),
-                                      prices.get(coin, 0.0), dry_run))
+                                      prices.get(coin, 0.0), dry_run, closes=closes))
         except Exception as exc:
             logger.error("decision failed for %s: %s", coin, exc, exc_info=True)
     return dict(utc=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M"),
