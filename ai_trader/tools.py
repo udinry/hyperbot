@@ -191,8 +191,31 @@ class ToolExecutor:
         size = float(args["size"])
         snap = self.account_snapshot()
         price = float(snap["mids"].get(coin, 0))
+        reduce_only = bool(args.get("reduce_only", False))
+
+        # Signal-consistency gate (deterministic encoding of operator rule 2):
+        # the strategy is long/flat — no order may open or grow a position the
+        # model doesn't want. Prompt rules are soft; this is code.
+        if not reduce_only:
+            if not is_buy:
+                cur = snap["positions"].get(coin, 0.0)
+                if cur <= 0:
+                    return {"ok": False, "error":
+                            "signal gate: strategy is long/flat only — SELLs "
+                            "must be reduce_only (no new shorts)"}, True
+            else:
+                try:
+                    sig = strategy_bridge.strategy_signal(coin)
+                except Exception as exc:
+                    return {"ok": False, "error":
+                            f"signal gate: cannot verify signal ({exc}) — "
+                            f"refusing to open a position blind"}, True
+                if sig["target_fraction"] <= 0:
+                    return {"ok": False, "error":
+                            "signal gate: model is FLAT for "
+                            f"{coin} (target_fraction=0) — no new longs"}, True
         req = OrderRequest(coin=coin, is_buy=is_buy, size=size, price=price,
-                           reduce_only=bool(args.get("reduce_only", False)))
+                           reduce_only=reduce_only)
         decision = self.risk.check_order(req, snap["equity_usd"], snap["positions_usd"])
         record = {"t": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                   "coin": coin, "side": args["side"], "size": size,

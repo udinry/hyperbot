@@ -27,6 +27,10 @@ def execu(monkeypatch):
     monkeypatch.setattr(e, "account_snapshot", lambda: {
         "equity_usd": 160.0, "positions": {}, "positions_usd": {},
         "mids": {"BTC": 60000.0}})
+    # default: model is long, so the signal gate permits BUYs; individual
+    # tests re-patch to 0.0 to exercise the gate itself
+    monkeypatch.setattr(tools_mod.strategy_bridge, "strategy_signal",
+                        lambda coin: {"target_fraction": 1.0})
     return e
 
 
@@ -115,6 +119,9 @@ def test_full_loop_drives_tool_then_summarizes(monkeypatch):
         return cfg, execu
     monkeypatch.setattr(agent, "build_runtime", patched_build)
 
+    # model long so the signal gate permits the mocked BUY
+    monkeypatch.setattr(tools_mod.strategy_bridge, "strategy_signal",
+                        lambda coin: {"target_fraction": 1.0})
     # mock anthropic module
     fake_anth = types.ModuleType("anthropic")
     fake_anth.Anthropic = _MockClient
@@ -124,3 +131,35 @@ def test_full_loop_drives_tool_then_summarizes(monkeypatch):
 
     out = agent.run_cycle("do today's cycle", live=False)
     assert "Placed a small BTC long" in out
+
+
+def test_signal_gate_blocks_long_when_model_flat(execu, monkeypatch):
+    monkeypatch.setattr(tools_mod.strategy_bridge, "strategy_signal",
+                        lambda coin: {"target_fraction": 0.0})
+    out, err = execu.execute("place_order", {
+        "coin": "BTC", "side": "BUY", "size": 0.001, "rationale": "vibes"})
+    assert err and "signal gate" in out["error"]
+
+
+def test_signal_gate_allows_long_when_model_long(execu, monkeypatch):
+    monkeypatch.setattr(tools_mod.strategy_bridge, "strategy_signal",
+                        lambda coin: {"target_fraction": 0.75})
+    out, err = execu.execute("place_order", {
+        "coin": "BTC", "side": "BUY", "size": 0.001, "rationale": "model long"})
+    assert not err and out["dry_run"]
+
+
+def test_signal_gate_blocks_new_short(execu):
+    out, err = execu.execute("place_order", {
+        "coin": "BTC", "side": "SELL", "size": 0.001, "rationale": "bearish vibes"})
+    assert err and "reduce_only" in out["error"]
+
+
+def test_signal_gate_allows_reduce_only_exit(execu, monkeypatch):
+    monkeypatch.setattr(execu, "account_snapshot", lambda: {
+        "equity_usd": 160.0, "positions": {"BTC": 0.001},
+        "positions_usd": {"BTC": 60.0}, "mids": {"BTC": 60000.0}})
+    out, err = execu.execute("place_order", {
+        "coin": "BTC", "side": "SELL", "size": 0.001, "reduce_only": True,
+        "rationale": "model went flat; closing"})
+    assert not err and out["dry_run"]
