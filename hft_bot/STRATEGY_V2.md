@@ -43,6 +43,9 @@ or break the idea. That is what `trend_bot.py` is.
   vol-scaled, half- and full-size) was also evaluated IS and **rejected**
   (Sharpe 1.70 → 1.60/1.40, deeper DD): even in confirmed bears, shorting BTC
   costs more in squeezes than it earns — cash is the better bear position.
+  A breadth-scaled regime input (BTC exposure × fraction of BTC/ETH/LTC above
+  own SMA150) was also evaluated IS and **rejected** as a wash (Sharpe
+  1.75→1.73) not worth a 3-asset data dependency.
 - Reproduce everything: `python research_trend.py`.
 
 ## Results

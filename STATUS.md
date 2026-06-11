@@ -83,6 +83,11 @@ frozen parameter set. Majors remain the trading universe (best Sharpe).
 position. Routine: forward mark + shadow log deduped (same UTC day), 9-asset
 breadth result stands.
 
+**2026-06-11 (cycle) — breadth regime input REJECTED in-sample:** scaling BTC
+exposure by market breadth (fraction of BTC/ETH/LTC above own SMA150) is a
+wash IS 2017-2021 (Sharpe 1.75→1.73, DD 28→25, CAGR 72→66). Ambiguous + adds
+a 3-asset data dependency → reject; not worth the complexity. OOS untouched.
+
 ## Counterfactual audit (user-requested, 2026-06-11)
 
 `hft_bot/shadow_book.py` logs every liquid-universe long signal the system
