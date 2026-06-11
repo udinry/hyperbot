@@ -70,3 +70,26 @@ flash a perfect trend signal and still be refused as a candidate if it's thin.
 This makes "majors-only" a *coded safety rule*, not just a preference, and is
 independent of the AI's get_news halt (defense in depth). BTC/ETH/SOL all clear
 it comfortably; the alt signals we already rejected were all thin anyway.
+
+
+## 2026-06-11 (d) — Will the edge decay? Crowding & post-publication alpha
+
+Literature (arXiv 2105.01380 "Why and how systematic strategies decay",
+arXiv 2512.11913 on alpha-capacity games, McLean-Pontiff post-publication
+decay, QuantPedia commodity-crowding):
+- ~50% of anomaly alpha typically decays after publication; equity momentum
+  fell from ~10%/yr (1990s) to ~2%/yr today. Crowding negatively predicts
+  factor returns; historical returns accrued mostly in LOW-crowding periods.
+- BUT: decay is slowest for (a) strategies with painful risk profiles
+  (trend's years-long chop), (b) markets with retail/forced flows, and
+  (c) capacity-constrained arbitrage. Crypto scores well on (a) and (b):
+  leveraged liquidations and ETF redemptions are *forced*, price-insensitive
+  flows that recreate trends regardless of how many quants chase them.
+
+**Implications for us:**
+1. Expect REALIZED returns below the +21% OOS point estimate — decay is the
+   base case. Our stated planning range (10-20%/yr) already prices this in.
+2. The drift monitor is our crowding detector: persistent DRIFT WARNING
+   verdicts are how decay would actually show up. No parameter action now.
+3. Diversification across assets (done) and, later, a carry sleeve are the
+   standard answers to single-factor decay — not more tuning of the factor.
