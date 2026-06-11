@@ -1,0 +1,10 @@
+[Unit]
+Description=Hyperbot forward-test daily mark (paper, no orders)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/hyperbot/hft_bot
+EnvironmentFile=/opt/hyperbot/.env
+ExecStart=/opt/hyperbot/.venv/bin/python forward_test.py

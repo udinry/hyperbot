@@ -1,0 +1,9 @@
+[Unit]
+Description=Run hyperbot forward-test daily after UTC close
+
+[Timer]
+OnCalendar=*-*-* 00:10:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

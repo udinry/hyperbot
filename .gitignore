@@ -50,3 +50,4 @@ hft_bot/*.jsonl
 ai_trader/audit_log.jsonl
 ai_trader/trend_state.json
 ai_trader/__pycache__/
+hft_bot/forward_test_log.csv

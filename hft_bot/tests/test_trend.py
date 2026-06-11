@@ -78,3 +78,43 @@ def test_regime_filter_disabled_when_zero(monkeypatch):
     monkeypatch.setattr(tb, "REGIME_FILTER_DAYS", 0)
     closes = _series(100_000, 60_000, 200)  # downtrend
     assert tb.regime_ok(closes) is True   # filter off => always ok
+
+
+# ---- forward_test harness ----
+def test_forward_test_compounds_and_dedups(tmp_path, monkeypatch):
+    import forward_test as ft
+    monkeypatch.setattr(ft, "LOG", tmp_path / "fwd.csv")
+    closes = {"v": _series(50_000, 100_000, 200)}   # uptrend -> long
+    monkeypatch.setattr(ft.trend_bot, "fetch_daily_closes",
+                        lambda coin, days=400: closes["v"])
+    fake_day = {"v": "2026-01-01"}
+
+    import datetime as _real_dt
+    _RealDateTime = _real_dt.datetime   # capture before patching the module
+    _TZ_UTC = _real_dt.timezone.utc
+
+    class _FakeDT:
+        @staticmethod
+        def now(tz=None):
+            return _RealDateTime.strptime(fake_day["v"], "%Y-%m-%d").replace(
+                tzinfo=_TZ_UTC)
+    monkeypatch.setattr(ft.dt, "datetime", _FakeDT)
+
+    ft.run_once(["BTC"])
+    ft.run_once(["BTC"])              # same day -> dedup, still 1 data row
+    rows = ft._load_rows()
+    assert len(rows) == 1
+
+    # next day: price +1%, was fully long (target 1.0 in calm uptrend)
+    fake_day["v"] = "2026-01-02"
+    closes["v"] = [c for c in closes["v"]] + [closes["v"][-1] * 1.01]
+    ft.run_once(["BTC"])
+    rows = ft._load_rows()
+    assert len(rows) == 2
+    prev_target = float(rows[0]["target_fraction"])
+    strat = float(rows[1]["strategy_day_return_pct"]) / 100
+    eq = float(rows[1]["equity"])
+    # strat return ≈ prev_target * 1% - funding drag (no target change cost if same)
+    assert strat == pytest.approx(prev_target * 0.01
+                                  - ft.FUND_DRAG_DAILY * prev_target, abs=2e-4)
+    assert eq == pytest.approx(1000 * (1 + strat), abs=0.05)
