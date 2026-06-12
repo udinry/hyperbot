@@ -51,7 +51,36 @@ def fetch_funding(coins: list[str]) -> dict[str, float]:
 LOG = _HERE / "forward_test_log.csv"
 COLUMNS = ["date", "coin", "close", "signal_fraction", "vol_scale",
            "target_fraction", "prev_close", "day_return_pct",
-           "strategy_day_return_pct", "equity", "funding_hr"]
+           "strategy_day_return_pct", "equity", "funding_hr",
+           "challenger_target", "challenger_equity"]
+
+# ---------------------------------------------------------------------------
+# CHALLENGER: "improve the model every cycle", formalized. Each day it adopts
+# whichever single SMA window {20,50,100,150,200} had the best trailing-90d
+# simulated long/flat return — i.e. it re-tunes itself daily on recent data.
+# Champion (frozen v2.1) vs challenger run side by side in this log so the
+# debate "freeze vs constantly improve" is settled by the forward record,
+# not by argument. Standard champion/challenger practice.
+# ---------------------------------------------------------------------------
+CHALLENGER_WINDOWS = (20, 50, 100, 150, 200)
+
+
+def challenger_target(closes: list[float]) -> float:
+    """Daily re-tuned model: best trailing-90d window, long/flat, vol-scaled."""
+    if len(closes) < 300:
+        return 0.0
+    best_w, best_ret = None, -1e9
+    for w in CHALLENGER_WINDOWS:
+        eq = 1.0
+        for i in range(len(closes) - 90, len(closes) - 1):
+            sma = sum(closes[i - w + 1:i + 1]) / w
+            pos = 1.0 if closes[i] > sma else 0.0
+            eq *= 1 + pos * (closes[i + 1] - closes[i]) / closes[i]
+        if eq > best_ret:
+            best_ret, best_w = eq, w
+    sma = sum(closes[-best_w:]) / best_w
+    pos = 1.0 if closes[-1] > sma else 0.0
+    return round(pos * trend_bot.vol_scale(closes), 4)
 COST_PER_CHANGE = 0.00045          # 4.5 bp per position change (modelled)
 FUND_DRAG_DAILY = 0.08 / 365       # 8% APR while long
 
@@ -87,6 +116,7 @@ def run_once(coins: list[str]) -> None:
             scale = trend_bot.vol_scale(closes)
             target = round(frac * scale, 4)
 
+            ch_target = challenger_target(closes)
             prev = _last_for(rows, coin)
             if prev and prev["date"] != today:
                 prev_close = float(prev["close"])
@@ -97,10 +127,16 @@ def run_once(coins: list[str]) -> None:
                 cost = COST_PER_CHANGE * abs(target - prev_target)
                 strat_ret = prev_target * day_ret - cost - FUND_DRAG_DAILY * prev_target
                 equity = float(prev["equity"]) * (1 + strat_ret)
+                prev_ch = float(prev.get("challenger_target", 0) or 0)
+                ch_ret = (prev_ch * day_ret
+                          - COST_PER_CHANGE * abs(ch_target - prev_ch)
+                          - FUND_DRAG_DAILY * prev_ch)
+                ch_equity = float(prev.get("challenger_equity", 1000) or 1000) * (1 + ch_ret)
             else:
                 day_ret = 0.0
                 strat_ret = 0.0
                 equity = float(prev["equity"]) if prev else 1000.0
+                ch_equity = float(prev.get("challenger_equity", 1000) or 1000) if prev else 1000.0
 
             if prev and prev["date"] == today:
                 continue  # already logged today
@@ -108,7 +144,8 @@ def run_once(coins: list[str]) -> None:
             w.writerow([today, coin, f"{close:.2f}", frac, scale, target,
                         f"{(prev_close if prev else close):.2f}" if prev else f"{close:.2f}",
                         f"{day_ret*100:.4f}", f"{strat_ret*100:.4f}", f"{equity:.4f}",
-                        f"{funding.get(coin, 0.0):.8f}"])
+                        f"{funding.get(coin, 0.0):.8f}",
+                        ch_target, f"{ch_equity:.4f}"])
             summary_lines.append(f"{coin}: tgt={target} eq={equity:.0f}")
             print(f"{today} {coin}: close={close:.0f} target={target} "
                   f"day={day_ret*100:+.2f}% strat={strat_ret*100:+.2f}% equity={equity:.2f}")
@@ -154,6 +191,17 @@ def report(coins: list[str]) -> None:
         by_date.setdefault(r["date"], []).append(
             float(r["strategy_day_return_pct"]) / 100)
     pooled = [sum(v) / len(v) for d, v in sorted(by_date.items())][1:]
+    # champion vs challenger scoreboard
+    ch_rows = [r for r in rows if r.get("challenger_equity")]
+    if ch_rows:
+        latest = {}
+        for r in ch_rows:
+            latest[r["coin"]] = (float(r["equity"]), float(r["challenger_equity"]))
+        champ = sum(v[0] for v in latest.values()) / len(latest)
+        chall = sum(v[1] for v in latest.values()) / len(latest)
+        print(f"\nCHAMPION (frozen v2.1): ${champ:,.2f}   vs   "
+              f"CHALLENGER (re-tuned daily): ${chall:,.2f}"
+              f"   -> {'champion leads' if champ >= chall else 'CHALLENGER leads'}")
     print(f"\nDrift check: {drift_verdict(pooled)}")
     print(f"Log: {LOG}  (backtest expectation: ~21% CAGR / 22% DD — STRATEGY_V2.md)")
 

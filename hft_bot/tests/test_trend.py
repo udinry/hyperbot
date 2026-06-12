@@ -261,3 +261,13 @@ def test_scan_liquidity_floor_excludes_thin_markets(monkeypatch):
     assert "BIGML" in out
     assert "THINX LONG signal but" in out and "NOT a candidate" in out
     assert "LONG candidates (validated signal): BIGML" in out
+
+
+def test_challenger_target_valid_and_adaptive():
+    import forward_test as ft
+    assert ft.challenger_target([100.0] * 50) == 0.0            # short history
+    up = _series(50_000, 100_000, 400)
+    t = ft.challenger_target(up)
+    assert 0.0 < t <= 1.0                                        # long in uptrend
+    down = _series(100_000, 50_000, 400)
+    assert ft.challenger_target(down) == 0.0                     # flat in downtrend
