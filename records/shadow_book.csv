@@ -57,3 +57,7 @@ date,coin,price,signal,target,reason_skipped
 2026-06-12,TON,1.7371,0.75,0.272,not in TREND_COINS (failed vetting or unvetted short-history alt)
 2026-06-12,TRX,0.31522,0.25,0.25,not in TREND_COINS (failed vetting or unvetted short-history alt)
 2026-06-12,VVV,15.316,1.0,0.257,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-01-01,TRX,0.31605,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-01-01,XPL,0.080586,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-01-02,TRX,0.31605,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
+2026-01-02,XPL,0.080586,1.0,1.0,not in TREND_COINS (failed vetting or unvetted short-history alt)
