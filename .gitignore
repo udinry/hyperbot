@@ -52,3 +52,5 @@ ai_trader/trend_state.json
 ai_trader/__pycache__/
 hft_bot/forward_test_log.csv
 hft_bot/shadow_book.csv
+hft_bot/news_lab_headlines.csv
+hft_bot/news_lab_prices.csv

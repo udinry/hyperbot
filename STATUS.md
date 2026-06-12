@@ -108,6 +108,15 @@ wins EVERYWHERE: OOS 2022-2026 Sharpe 0.88 vs 0.47, CAGR 21.2% vs 9.8%, MaxDD
 formalized, loses ~11pts CAGR to discipline. Forward race continues as live
 confirmation.
 
+## News-reaction lab (user-requested side research, 2026-06-12)
+
+`hft_bot/news_lab.py` runs every 30-min cycle: logs new headlines from the
+agent's feeds (keyword-tagged bullish/bearish/neutral) + BTC/ETH/SOL price
+snapshots; resolves each headline's forward return at 30m/2h/24h.
+`--report` prints reaction stats per sentiment bucket. DATA COLLECTION ONLY —
+headlines are largely endogenous (describe past moves), so no causal claims
+and no trading use until properly studied. First cycle: 24 headlines logged.
+
 ## Counterfactual audit (user-requested, 2026-06-11)
 
 `hft_bot/shadow_book.py` logs every liquid-universe long signal the system

@@ -271,3 +271,39 @@ def test_challenger_target_valid_and_adaptive():
     assert 0.0 < t <= 1.0                                        # long in uptrend
     down = _series(100_000, 50_000, 400)
     assert ft.challenger_target(down) == 0.0                     # flat in downtrend
+
+
+# ---- news lab ----
+def test_news_lab_classify():
+    import news_lab as nl
+    assert nl.classify("Bitcoin ETF sees record inflow as price surges") == "bullish"
+    assert nl.classify("Exchange hack triggers selloff and liquidations") == "bearish"
+    assert nl.classify("SpaceX stock is coming to Solana") == "neutral"
+    # mixed signals -> neutral (no false confidence)
+    assert nl.classify("Rally fades as outflows continue") == "neutral"
+
+
+def test_news_lab_collect_dedup_and_resolve(tmp_path, monkeypatch):
+    import news_lab as nl
+    monkeypatch.setattr(nl, "HEADS", tmp_path / "h.csv")
+    monkeypatch.setattr(nl, "PRICES", tmp_path / "p.csv")
+    monkeypatch.setattr(nl, "fetch_headlines",
+                        lambda limit=12: [("test", "BTC surges on ETF approval")])
+    px = {"v": 100.0}
+    monkeypatch.setattr(nl, "snapshot_prices",
+                        lambda: {"BTC": px["v"], "ETH": 10.0, "SOL": 1.0})
+    import datetime as real_dt
+    t = {"v": real_dt.datetime(2026, 1, 1, 0, 0, tzinfo=real_dt.timezone.utc)}
+    class _FDT:
+        @staticmethod
+        def now(tz=None): return t["v"]
+        strptime = real_dt.datetime.strptime
+    monkeypatch.setattr(nl.dt, "datetime", _FDT)
+
+    assert nl.collect() == 1
+    assert nl.collect() == 0                     # same headline -> dedup
+    # 30 minutes later, price +1% -> resolves T+30m
+    t["v"] += real_dt.timedelta(minutes=30); px["v"] = 101.0
+    nl.collect()
+    rep = nl.report()
+    assert "bullish" in rep and "T+  30m: n=1" in rep and "+1.000%" in rep
