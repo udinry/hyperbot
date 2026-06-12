@@ -47,9 +47,14 @@ cd /opt/hyperbot/ai_trader && python agent.py status
 
 1. ~~Forward-test harness~~ **DONE** — `hft_bot/forward_test.py` + daily
    systemd timer; first live marks logged 2026-06-11.
-2. **Funding-carry sleeve**: market-neutral income when funding is extreme.
-   UNBLOCKED: forward_test now logs hourly funding per coin daily (funding_hr
-   column) — history accumulates automatically; revisit once weeks of data exist.
+2. ~~Funding-carry sleeve~~ **STUDIED 2026-06-12** — found 5.4y of funding
+   history via Binance public archive (data.binance.vision, works despite API
+   geo-block). Funding avg 11.1% APR, >10% APR 47% of the time. Simple sleeve
+   (enter trailing-3d >10% APR, exit <5%, 20bp RT costs): **+8.1%/yr on
+   deployed notional, market-neutral, in-trade 43% of time**. Caveats: needs
+   collateral on both legs (≈4%/yr on total capital), HL spot-leg liquidity,
+   funding regime currently low (~1.6% APR). VERDICT: viable diversifier at
+   ≳$5k capital; not worth complexity at $160. Re-evaluate at funding.
 3. ~~Cross-asset portfolio sizing~~ **DONE** — inverse-vol (risk-parity)
    weights, OOS Sharpe 0.74→0.78 vs equal weight; default TREND_WEIGHTING=invvol.
 4. ~~Regime-filter robustness~~ **DONE** — plateau confirmed (100–250d all
@@ -95,6 +100,13 @@ vol mgmt: Moreira-Muir w22208, Wang-Yan JBF 2021) and RESEARCH_AGENDA.md
 targeting (Wang-Yan prior): IS raises CAGR (69→85%) but LOWERS Sharpe
 (1.70→1.56) and deepens DD — predicted Sharpe gain absent → 5th kill, OOS
 untouched. Net: v2.1 total-vol targeting stands.
+
+**2026-06-12 — CHAMPION vs CHALLENGER settled by history (user challenge):**
+ran the daily-self-retuning challenger vs frozen v2.1 over 11 years. Champion
+wins EVERYWHERE: OOS 2022-2026 Sharpe 0.88 vs 0.47, CAGR 21.2% vs 9.8%, MaxDD
+22% vs 37%; wins every sampled year incl. both bears. 'Improve every cycle',
+formalized, loses ~11pts CAGR to discipline. Forward race continues as live
+confirmation.
 
 ## Counterfactual audit (user-requested, 2026-06-11)
 
