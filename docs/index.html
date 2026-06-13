@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Monoth Markets — a live, modern crypto markets dashboard." />
+    <title>Monoth · Markets</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #07080c;
+        --bg-2: #0b0d14;
+        --panel: rgba(20, 23, 33, 0.72);
+        --panel-solid: #14171f;
+        --stroke: rgba(255, 255, 255, 0.07);
+        --stroke-strong: rgba(255, 255, 255, 0.14);
+        --ink: #f4f6fb;
+        --muted: #8b93a7;
+        --faint: #5b6276;
+        --up: #2fd98a;
+        --down: #ff5d6c;
+        --accent: #7c8bff;
+        --accent-2: #38e0c8;
+        --glow: 0 0 0 1px var(--stroke), 0 24px 60px -28px rgba(0, 0, 0, 0.85);
+        --radius: 20px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        min-height: 100vh;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1100px 700px at 12% -10%, rgba(124, 139, 255, 0.16), transparent 60%),
+          radial-gradient(900px 600px at 100% 0%, rgba(56, 224, 200, 0.1), transparent 55%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+        background-attachment: fixed;
+        -webkit-font-smoothing: antialiased;
+        letter-spacing: -0.01em;
+        padding-bottom: 56px;
+      }
+
+      .mono {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-feature-settings: "tnum" 1;
+      }
+
+      .wrap {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 0 22px;
+      }
+
+      /* ---------- Top bar ---------- */
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        backdrop-filter: blur(18px) saturate(140%);
+        -webkit-backdrop-filter: blur(18px) saturate(140%);
+        background: rgba(7, 8, 12, 0.66);
+        border-bottom: 1px solid var(--stroke);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 16px 22px;
+        max-width: 1240px;
+        margin: 0 auto;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 800;
+        font-size: 18px;
+        letter-spacing: -0.02em;
+      }
+
+      .logo {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        background: conic-gradient(from 210deg, var(--accent), var(--accent-2), var(--accent));
+        box-shadow: 0 6px 22px -6px var(--accent);
+        position: relative;
+      }
+      .logo::after {
+        content: "";
+        position: absolute;
+        inset: 6px;
+        border-radius: 5px;
+        background: var(--bg);
+      }
+      .brand small {
+        color: var(--faint);
+        font-weight: 500;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .top-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .live-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--stroke);
+        background: rgba(255, 255, 255, 0.02);
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--up);
+        box-shadow: 0 0 0 0 rgba(47, 217, 138, 0.6);
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(47, 217, 138, 0.5); }
+        70% { box-shadow: 0 0 0 7px rgba(47, 217, 138, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(47, 217, 138, 0); }
+      }
+      .dot.stale { background: var(--down); animation: none; }
+
+      .refresh-btn {
+        border: 1px solid var(--stroke);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        height: 36px;
+        width: 36px;
+        border-radius: 10px;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        transition: transform 0.2s, border-color 0.2s, background 0.2s;
+      }
+      .refresh-btn:hover { border-color: var(--stroke-strong); background: rgba(255, 255, 255, 0.06); }
+      .refresh-btn:active { transform: scale(0.92); }
+      .refresh-btn.spin svg { animation: spin 0.7s linear; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* ---------- Hero ---------- */
+      .hero {
+        padding: 38px 0 8px;
+      }
+      .hero h1 {
+        font-size: clamp(28px, 5vw, 46px);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        line-height: 1.02;
+      }
+      .hero h1 .grad {
+        background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .hero p {
+        color: var(--muted);
+        margin-top: 12px;
+        max-width: 560px;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      /* ---------- Layout grid ---------- */
+      .grid {
+        display: grid;
+        gap: 18px;
+        margin-top: 26px;
+      }
+      .cols-2 { grid-template-columns: 1.6fr 1fr; }
+      .cols-3 { grid-template-columns: repeat(3, 1fr); }
+      .cols-4 { grid-template-columns: repeat(4, 1fr); }
+      @media (max-width: 940px) {
+        .cols-2, .cols-3, .cols-4 { grid-template-columns: 1fr; }
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--stroke);
+        border-radius: var(--radius);
+        padding: 20px;
+        position: relative;
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 24px 60px -40px rgba(0, 0, 0, 0.9);
+        transition: border-color 0.25s, transform 0.25s;
+      }
+      .card:hover { border-color: var(--stroke-strong); }
+      .card .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--faint);
+        font-weight: 600;
+      }
+
+      /* ---------- Big BTC card ---------- */
+      .spotlight { padding: 24px; }
+      .spotlight .top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .coin-id { display: flex; align-items: center; gap: 12px; }
+      .coin-id img { width: 38px; height: 38px; border-radius: 50%; }
+      .coin-id .name { font-weight: 700; font-size: 18px; }
+      .coin-id .sym { color: var(--faint); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+      .big-price {
+        font-size: clamp(34px, 6vw, 52px);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        margin-top: 16px;
+        line-height: 1;
+        transition: color 0.4s;
+      }
+      .flash-up { color: var(--up) !important; }
+      .flash-down { color: var(--down) !important; }
+      .chg-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+      .chg {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 5px 10px;
+        border-radius: 8px;
+      }
+      .chg .span { color: var(--faint); font-weight: 500; }
+      .up { color: var(--up); }
+      .down { color: var(--down); }
+      .chg.pos { background: rgba(47, 217, 138, 0.1); }
+      .chg.neg { background: rgba(255, 93, 108, 0.1); }
+      .spark-wrap { margin-top: 18px; height: 120px; position: relative; }
+
+      .mini-stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1px;
+        margin-top: 20px;
+        background: var(--stroke);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .mini-stats div {
+        background: var(--panel-solid);
+        padding: 12px 14px;
+      }
+      .mini-stats .k { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.1em; }
+      .mini-stats .v { font-size: 15px; font-weight: 600; margin-top: 4px; }
+
+      /* ---------- Fear & Greed gauge ---------- */
+      .gauge-card { display: flex; flex-direction: column; }
+      .gauge { position: relative; width: 100%; max-width: 240px; margin: 14px auto 0; }
+      .gauge svg { width: 100%; display: block; }
+      .gauge .reading {
+        position: absolute;
+        bottom: 8px;
+        left: 0;
+        right: 0;
+        text-align: center;
+      }
+      .gauge .num { font-size: 44px; font-weight: 800; line-height: 1; }
+      .gauge .cls { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; margin-top: 4px; }
+
+      /* ---------- Global stat tiles ---------- */
+      .stat-tile { padding: 18px 20px; }
+      .stat-tile .v { font-size: 24px; font-weight: 700; margin-top: 10px; letter-spacing: -0.02em; }
+      .stat-tile .sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+      /* ---------- Market table ---------- */
+      .section-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin: 6px 2px 0;
+      }
+      .section-head h2 { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+      .section-head .hint { font-size: 12px; color: var(--faint); }
+
+      .table-card { padding: 6px 6px 10px; }
+      table { width: 100%; border-collapse: collapse; }
+      thead th {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--faint);
+        font-weight: 600;
+        text-align: right;
+        padding: 14px 14px 10px;
+        position: sticky;
+        top: 69px;
+      }
+      thead th.l { text-align: left; }
+      tbody td {
+        padding: 12px 14px;
+        text-align: right;
+        border-top: 1px solid var(--stroke);
+        font-size: 14px;
+        white-space: nowrap;
+      }
+      tbody td.l { text-align: left; }
+      tbody tr { transition: background 0.15s; }
+      tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
+      .asset { display: flex; align-items: center; gap: 11px; }
+      .asset img { width: 26px; height: 26px; border-radius: 50%; }
+      .asset .nm { font-weight: 600; }
+      .asset .tk { color: var(--faint); font-size: 12px; text-transform: uppercase; }
+      .rank { color: var(--faint); font-size: 12px; width: 22px; }
+      td .pill { font-weight: 600; }
+      .cell-spark { width: 130px; }
+      .cell-spark canvas { height: 38px !important; }
+
+      /* ---------- Orderbook ---------- */
+      .ob { display: grid; gap: 2px; margin-top: 14px; font-size: 13px; }
+      .ob-row {
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        padding: 5px 10px;
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .ob-row .bar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        z-index: 0;
+        opacity: 0.16;
+      }
+      .ob-row.bid .bar { background: var(--up); left: auto; right: 0; }
+      .ob-row.ask .bar { background: var(--down); left: auto; right: 0; }
+      .ob-row span { position: relative; z-index: 1; }
+      .ob-row .px { font-weight: 600; }
+      .ob-mid {
+        text-align: center;
+        font-weight: 700;
+        padding: 9px;
+        font-size: 15px;
+        border-top: 1px solid var(--stroke);
+        border-bottom: 1px solid var(--stroke);
+        margin: 4px 0;
+      }
+
+      .skeleton {
+        background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 37%, rgba(255,255,255,0.04) 63%);
+        background-size: 400% 100%;
+        animation: sk 1.4s ease infinite;
+        border-radius: 6px;
+        color: transparent !important;
+      }
+      @keyframes sk { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+      footer {
+        text-align: center;
+        color: var(--faint);
+        font-size: 12px;
+        margin-top: 40px;
+        line-height: 1.7;
+      }
+      footer a { color: var(--muted); text-decoration: none; }
+      footer a:hover { color: var(--ink); }
+
+      .err-banner {
+        display: none;
+        margin: 16px 0 0;
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: rgba(255, 93, 108, 0.1);
+        border: 1px solid rgba(255, 93, 108, 0.3);
+        color: #ffb3ba;
+        font-size: 13px;
+      }
+
+      .fade-in { animation: fade 0.5s ease; }
+      @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="topbar">
+        <div class="brand">
+          <div class="logo"></div>
+          <div>
+            Monoth <small>Markets</small>
+          </div>
+        </div>
+        <div class="top-right">
+          <span class="live-pill"><span class="dot" id="liveDot"></span><span id="liveText">connecting…</span></span>
+          <button class="refresh-btn" id="refreshBtn" title="Refresh now" aria-label="Refresh">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 3v6h-6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="wrap">
+      <section class="hero">
+        <h1>The market, <span class="grad">in one glance.</span></h1>
+        <p>A live, real-time view of crypto — prices, sentiment, depth and momentum — refreshed automatically from public market data.</p>
+        <div class="err-banner" id="errBanner"></div>
+      </section>
+
+      <!-- Spotlight + Fear/Greed -->
+      <div class="grid cols-2">
+        <div class="card spotlight" id="spotlight">
+          <div class="top">
+            <div class="coin-id">
+              <img id="btcIcon" alt="" src="https://assets.coingecko.com/coins/images/1/large/bitcoin.png" />
+              <div>
+                <div class="name">Bitcoin</div>
+                <div class="sym">BTC · USD</div>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div class="label">Live (Hyperliquid)</div>
+              <div class="mono" id="hlMid" style="margin-top:6px;color:var(--muted)">—</div>
+            </div>
+          </div>
+          <div class="big-price mono" id="btcPrice">$—</div>
+          <div class="chg-row" id="btcChanges"></div>
+          <div class="spark-wrap"><canvas id="btcSpark"></canvas></div>
+          <div class="mini-stats" id="btcMini"></div>
+        </div>
+
+        <div class="card gauge-card">
+          <div class="label">Fear &amp; Greed Index</div>
+          <div class="gauge">
+            <svg viewBox="0 0 200 120">
+              <defs>
+                <linearGradient id="fgGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stop-color="#ff5d6c" />
+                  <stop offset="50%" stop-color="#ffce54" />
+                  <stop offset="100%" stop-color="#2fd98a" />
+                </linearGradient>
+              </defs>
+              <path d="M20 110 A 80 80 0 0 1 180 110" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="16" stroke-linecap="round" />
+              <path id="fgArc" d="M20 110 A 80 80 0 0 1 180 110" fill="none" stroke="url(#fgGrad)" stroke-width="16" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="251" style="transition: stroke-dashoffset 1s cubic-bezier(.3,.9,.3,1)" />
+              <g id="fgNeedle" style="transition: transform 1s cubic-bezier(.3,.9,.3,1); transform-origin: 100px 110px;">
+                <line x1="100" y1="110" x2="100" y2="44" stroke="var(--ink)" stroke-width="3" stroke-linecap="round" />
+                <circle cx="100" cy="110" r="6" fill="var(--ink)" />
+              </g>
+            </svg>
+            <div class="reading">
+              <div class="num mono" id="fgNum">—</div>
+              <div class="cls" id="fgCls">loading</div>
+            </div>
+          </div>
+          <div style="margin-top:auto;font-size:12px;color:var(--faint);text-align:center;padding-top:10px">
+            0 = Extreme Fear · 100 = Extreme Greed
+          </div>
+        </div>
+      </div>
+
+      <!-- Global stat tiles -->
+      <div class="grid cols-4" id="globalTiles">
+        <div class="card stat-tile"><div class="label">Total Market Cap</div><div class="v skeleton">$0.0T</div><div class="sub">&nbsp;</div></div>
+        <div class="card stat-tile"><div class="label">24h Volume</div><div class="v skeleton">$0.0B</div><div class="sub">&nbsp;</div></div>
+        <div class="card stat-tile"><div class="label">BTC Dominance</div><div class="v skeleton">0%</div><div class="sub">&nbsp;</div></div>
+        <div class="card stat-tile"><div class="label">Active Coins</div><div class="v skeleton">0</div><div class="sub">&nbsp;</div></div>
+      </div>
+
+      <!-- Table + orderbook -->
+      <div class="grid cols-2" style="align-items:start">
+        <div>
+          <div class="section-head"><h2>Top Markets</h2><span class="hint">by market cap · 7d trend</span></div>
+          <div class="card table-card" style="margin-top:12px">
+            <table>
+              <thead>
+                <tr>
+                  <th class="l" style="padding-left:18px">Asset</th>
+                  <th>Price</th>
+                  <th>1h</th>
+                  <th>24h</th>
+                  <th>7d</th>
+                  <th class="l" style="text-align:center">Last 7d</th>
+                </tr>
+              </thead>
+              <tbody id="marketBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-head"><h2>BTC Order Book</h2><span class="hint">Hyperliquid · live</span></div>
+          <div class="card" style="margin-top:12px">
+            <div class="ob" id="obAsks"></div>
+            <div class="ob-mid mono" id="obMid">—</div>
+            <div class="ob" id="obBids"></div>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        Monoth Markets · live data from
+        <a href="https://www.coingecko.com" target="_blank" rel="noopener">CoinGecko</a>,
+        <a href="https://alternative.me/crypto/fear-and-greed-index/" target="_blank" rel="noopener">Alternative.me</a> &amp;
+        <a href="https://hyperliquid.xyz" target="_blank" rel="noopener">Hyperliquid</a>.
+        <br />Not financial advice. Auto-refreshes every 45s · order book every 6s.
+      </footer>
+    </div>
+
+    <script>
+      "use strict";
+      /* ------------------------------------------------------------------ */
+      /*  Config & helpers                                                  */
+      /* ------------------------------------------------------------------ */
+      const CG = "https://api.coingecko.com/api/v3";
+      const HL = "https://api.hyperliquid.xyz/info";
+      const FNG = "https://api.alternative.me/fng/?limit=1";
+      const REFRESH_MS = 45000;
+      const OB_MS = 6000;
+
+      const $ = (id) => document.getElementById(id);
+
+      const fmtUSD = (n, max = 2) => {
+        if (n == null || isNaN(n)) return "—";
+        return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: max >= 2 && n < 10 ? 2 : 0, maximumFractionDigits: n < 1 ? 6 : 2 });
+      };
+      const fmtPrice = (n) => {
+        if (n == null || isNaN(n)) return "—";
+        if (n >= 1000) return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+        if (n >= 1) return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 6 });
+      };
+      const fmtBig = (n) => {
+        if (n == null || isNaN(n)) return "—";
+        const a = Math.abs(n);
+        if (a >= 1e12) return "$" + (n / 1e12).toFixed(2) + "T";
+        if (a >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+        if (a >= 1e6) return "$" + (n / 1e6).toFixed(2) + "M";
+        return "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+      };
+      const pct = (n) => (n == null || isNaN(n) ? "—" : (n >= 0 ? "+" : "") + n.toFixed(2) + "%");
+      const cls = (n) => (n == null ? "" : n >= 0 ? "up" : "down");
+
+      async function getJSON(url, opts) {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 12000);
+        try {
+          const r = await fetch(url, { ...opts, signal: ctrl.signal });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return await r.json();
+        } finally {
+          clearTimeout(t);
+        }
+      }
+      const post = (url, body) =>
+        getJSON(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+      function setLive(ok, text) {
+        $("liveDot").classList.toggle("stale", !ok);
+        $("liveText").textContent = text;
+      }
+      function showErr(msg) {
+        const b = $("errBanner");
+        if (!msg) { b.style.display = "none"; return; }
+        b.style.display = "block";
+        b.textContent = msg;
+      }
+
+      /* ------------------------------------------------------------------ */
+      /*  Sparkline charts                                                  */
+      /* ------------------------------------------------------------------ */
+      Chart.defaults.font.family = "JetBrains Mono, monospace";
+      Chart.defaults.color = "#5b6276";
+
+      let btcChart = null;
+      function drawBtcSpark(prices) {
+        const up = prices[prices.length - 1] >= prices[0];
+        const color = up ? "#2fd98a" : "#ff5d6c";
+        const ctx = $("btcSpark").getContext("2d");
+        const grad = ctx.createLinearGradient(0, 0, 0, 120);
+        grad.addColorStop(0, up ? "rgba(47,217,138,0.35)" : "rgba(255,93,108,0.35)");
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        const data = { labels: prices.map((_, i) => i), datasets: [{ data: prices, borderColor: color, backgroundColor: grad, borderWidth: 2, fill: true, tension: 0.35, pointRadius: 0 }] };
+        const opts = {
+          responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
+          plugins: { legend: { display: false }, tooltip: { enabled: true, displayColors: false, callbacks: { title: () => "", label: (c) => fmtPrice(c.parsed.y) } } },
+          scales: { x: { display: false }, y: { display: false } },
+          interaction: { intersect: false, mode: "index" },
+        };
+        if (btcChart) { btcChart.data = data; btcChart.options = opts; btcChart.update(); }
+        else btcChart = new Chart(ctx, { type: "line", data, options: opts });
+      }
+
+      const miniCharts = {};
+      function drawMiniSpark(canvas, prices, up) {
+        const color = up ? "#2fd98a" : "#ff5d6c";
+        const id = canvas.dataset.id;
+        const data = { labels: prices.map((_, i) => i), datasets: [{ data: prices, borderColor: color, borderWidth: 1.5, fill: false, tension: 0.35, pointRadius: 0 }] };
+        const opts = { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } } };
+        if (miniCharts[id]) { miniCharts[id].destroy(); }
+        miniCharts[id] = new Chart(canvas.getContext("2d"), { type: "line", data, options: opts });
+      }
+
+      /* ------------------------------------------------------------------ */
+      /*  Price flash                                                       */
+      /* ------------------------------------------------------------------ */
+      let lastBtc = null;
+      function flashPrice(el, val) {
+        if (lastBtc != null && val !== lastBtc) {
+          const c = val > lastBtc ? "flash-up" : "flash-down";
+          el.classList.add(c);
+          setTimeout(() => el.classList.remove(c), 600);
+        }
+        lastBtc = val;
+      }
+
+      /* ------------------------------------------------------------------ */
+      /*  Renderers                                                         */
+      /* ------------------------------------------------------------------ */
+      function renderSpotlight(btc) {
+        $("btcPrice").classList.remove("skeleton");
+        const price = btc.current_price;
+        flashPrice($("btcPrice"), price);
+        $("btcPrice").textContent = fmtPrice(price);
+        if (btc.image) $("btcIcon").src = btc.image;
+
+        const chgs = [
+          ["1h", btc.price_change_percentage_1h_in_currency],
+          ["24h", btc.price_change_percentage_24h_in_currency],
+          ["7d", btc.price_change_percentage_7d_in_currency],
+        ];
+        $("btcChanges").innerHTML = chgs
+          .map(([k, v]) => `<span class="chg ${v >= 0 ? "pos" : "neg"} ${cls(v)}"><span class="span">${k}</span> ${pct(v)}</span>`)
+          .join("");
+
+        if (btc.sparkline_in_7d && btc.sparkline_in_7d.price) drawBtcSpark(btc.sparkline_in_7d.price);
+
+        $("btcMini").innerHTML = [
+          ["Market Cap", fmtBig(btc.market_cap)],
+          ["24h Volume", fmtBig(btc.total_volume)],
+          ["24h High", fmtPrice(btc.high_24h)],
+          ["24h Low", fmtPrice(btc.low_24h)],
+        ].map(([k, v]) => `<div><div class="k">${k}</div><div class="v mono">${v}</div></div>`).join("");
+      }
+
+      function renderTable(coins) {
+        const body = $("marketBody");
+        body.innerHTML = coins.map((c) => {
+          const sp = c.sparkline_in_7d && c.sparkline_in_7d.price ? c.sparkline_in_7d.price : [];
+          const up7 = (c.price_change_percentage_7d_in_currency || 0) >= 0;
+          return `<tr class="fade-in">
+            <td class="l" style="padding-left:18px">
+              <div class="asset">
+                <span class="rank">${c.market_cap_rank ?? ""}</span>
+                <img src="${c.image}" alt="" loading="lazy" />
+                <div><div class="nm">${c.name}</div><div class="tk">${c.symbol}</div></div>
+              </div>
+            </td>
+            <td class="mono">${fmtPrice(c.current_price)}</td>
+            <td class="mono pill ${cls(c.price_change_percentage_1h_in_currency)}">${pct(c.price_change_percentage_1h_in_currency)}</td>
+            <td class="mono pill ${cls(c.price_change_percentage_24h_in_currency)}">${pct(c.price_change_percentage_24h_in_currency)}</td>
+            <td class="mono pill ${cls(c.price_change_percentage_7d_in_currency)}">${pct(c.price_change_percentage_7d_in_currency)}</td>
+            <td class="l cell-spark"><canvas data-id="${c.id}" data-up="${up7}"></canvas></td>
+          </tr>`;
+        }).join("");
+        coins.forEach((c) => {
+          const cv = body.querySelector(`canvas[data-id="${c.id}"]`);
+          const sp = c.sparkline_in_7d && c.sparkline_in_7d.price ? c.sparkline_in_7d.price : [];
+          if (cv && sp.length) drawMiniSpark(cv, sp, cv.dataset.up === "true");
+        });
+      }
+
+      function renderGlobal(g) {
+        const d = g.data;
+        const tiles = [
+          ["Total Market Cap", fmtBig(d.total_market_cap.usd), pct(d.market_cap_change_percentage_24h_usd) + " (24h)", cls(d.market_cap_change_percentage_24h_usd)],
+          ["24h Volume", fmtBig(d.total_volume.usd), `${d.markets} markets`, ""],
+          ["BTC Dominance", d.market_cap_percentage.btc.toFixed(1) + "%", `ETH ${d.market_cap_percentage.eth.toFixed(1)}%`, ""],
+          ["Active Coins", d.active_cryptocurrencies.toLocaleString(), `${d.upcoming_icos + d.ongoing_icos || ""} ${""}`.trim() || "tracked", ""],
+        ];
+        $("globalTiles").innerHTML = tiles.map(([k, v, sub, c]) =>
+          `<div class="card stat-tile fade-in"><div class="label">${k}</div><div class="v mono">${v}</div><div class="sub ${c}">${sub}</div></div>`
+        ).join("");
+      }
+
+      function renderFng(num, label) {
+        $("fgNum").textContent = num;
+        $("fgCls").textContent = label;
+        const frac = Math.max(0, Math.min(100, num)) / 100;
+        $("fgArc").style.strokeDashoffset = String(251 - 251 * frac);
+        // needle: -90deg (left) to +90deg (right)
+        $("fgNeedle").style.transform = `rotate(${-90 + frac * 180}deg)`;
+        const color = num < 25 ? "#ff5d6c" : num < 45 ? "#ff9f6c" : num < 55 ? "#ffce54" : num < 75 ? "#9be35a" : "#2fd98a";
+        $("fgNum").style.color = color;
+        $("fgCls").style.color = color;
+      }
+
+      function renderOrderBook(levels) {
+        // levels: [bids[], asks[]] each {px, sz, n}
+        const bids = (levels[0] || []).slice(0, 9);
+        const asks = (levels[1] || []).slice(0, 9);
+        const maxSz = Math.max(
+          ...bids.map((l) => +l.sz),
+          ...asks.map((l) => +l.sz),
+          0.0001
+        );
+        const rowHtml = (l, side) => {
+          const w = (+l.sz / maxSz) * 100;
+          return `<div class="ob-row ${side}">
+            <div class="bar" style="width:${w}%"></div>
+            <span class="px mono ${side === "bid" ? "up" : "down"}">${Number(l.px).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+            <span class="mono" style="color:var(--muted)">${(+l.sz).toFixed(4)}</span>
+          </div>`;
+        };
+        $("obAsks").innerHTML = asks.slice().reverse().map((l) => rowHtml(l, "ask")).join("");
+        $("obBids").innerHTML = bids.map((l) => rowHtml(l, "bid")).join("");
+        if (bids.length && asks.length) {
+          const mid = (+bids[0].px + +asks[0].px) / 2;
+          const spread = +asks[0].px - +bids[0].px;
+          $("obMid").innerHTML = `${fmtPrice(mid)} <span style="color:var(--faint);font-size:12px;font-weight:500">spread ${spread.toFixed(1)}</span>`;
+        }
+      }
+
+      /* ------------------------------------------------------------------ */
+      /*  Data loaders                                                      */
+      /* ------------------------------------------------------------------ */
+      async function loadMarkets() {
+        const coins = await getJSON(
+          `${CG}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=15&page=1&sparkline=true&price_change_percentage=1h%2C24h%2C7d`
+        );
+        const btc = coins.find((c) => c.id === "bitcoin") || coins[0];
+        renderSpotlight(btc);
+        renderTable(coins);
+      }
+      async function loadGlobal() {
+        const g = await getJSON(`${CG}/global`);
+        renderGlobal(g);
+      }
+      async function loadFng() {
+        const f = await getJSON(FNG);
+        const d = f.data && f.data[0];
+        if (d) renderFng(+d.value, d.value_classification);
+      }
+      async function loadOrderBook() {
+        try {
+          const b = await post(HL, { type: "l2Book", coin: "BTC" });
+          if (b && b.levels) renderOrderBook(b.levels);
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+      async function loadHlMid() {
+        try {
+          const m = await post(HL, { type: "allMids" });
+          if (m && m.BTC) $("hlMid").textContent = "$" + Number(m.BTC).toLocaleString("en-US", { maximumFractionDigits: 1 });
+        } catch (e) { /* ignore */ }
+      }
+
+      /* ------------------------------------------------------------------ */
+      /*  Orchestration                                                     */
+      /* ------------------------------------------------------------------ */
+      let lastOk = 0;
+      async function refreshAll(manual) {
+        if (manual) {
+          const btn = $("refreshBtn");
+          btn.classList.remove("spin");
+          void btn.offsetWidth;
+          btn.classList.add("spin");
+        }
+        setLive(true, "updating…");
+        const results = await Promise.allSettled([loadMarkets(), loadGlobal(), loadFng()]);
+        const failed = results.filter((r) => r.status === "rejected");
+        if (failed.length === results.length) {
+          setLive(false, "data unavailable");
+          showErr("Couldn't reach market data sources. They may be rate-limiting — retrying automatically.");
+        } else {
+          lastOk = Date.now();
+          showErr(failed.length ? "Some panels are using cached/last values (a source rate-limited)." : "");
+          tickClock();
+        }
+      }
+
+      function tickClock() {
+        const secs = Math.round((Date.now() - lastOk) / 1000);
+        setLive(secs < 90, secs < 5 ? "live · just now" : `live · ${secs}s ago`);
+      }
+
+      $("refreshBtn").addEventListener("click", () => refreshAll(true));
+
+      // Boot
+      refreshAll(false);
+      loadOrderBook();
+      loadHlMid();
+      setInterval(() => refreshAll(false), REFRESH_MS);
+      setInterval(() => { loadOrderBook(); loadHlMid(); }, OB_MS);
+      setInterval(tickClock, 1000);
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshAll(false); });
+    </script>
+  </body>
+</html>
