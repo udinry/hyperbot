@@ -134,12 +134,23 @@ def report() -> str:
                 continue
             _, p1 = min(later)
             by.setdefault((h["sentiment"], hz), []).append((p1 - p0) / p0 * 100)
+    # Baseline per horizon = mean move across ALL headlines (the market drift
+    # over the collection window). EXCESS = sentiment bucket minus baseline.
+    # Without this, a drifting market makes every bucket look "predictive".
+    baseline = {}
+    for hz in HORIZONS_MIN:
+        allr = [r for (s, h), rs in by.items() if h == hz for r in rs]
+        baseline[hz] = sum(allr) / len(allr) if allr else 0.0
     for (sent, hz), rets in sorted(by.items()):
         n = len(rets)
         avg = sum(rets) / n
+        excess = avg - baseline[hz]
         pos = sum(1 for r in rets if r > 0) / n * 100
-        lines.append(f"  {sent:8} T+{hz:>4}m: n={n:<4} avg BTC move {avg:+.3f}%  "
-                     f"({pos:.0f}% positive)")
+        lines.append(f"  {sent:8} T+{hz:>4}m: n={n:<4} raw {avg:+.3f}%  "
+                     f"EXCESS vs drift {excess:+.3f}%  ({pos:.0f}% pos)")
+    lines.append("READ THE EXCESS COLUMN, not raw: over this window BTC drifted "
+                 "up, so every bucket's raw move is positive. Only excess-over-"
+                 "baseline separates sentiment from drift.")
     lines.append("CAVEAT: headlines are largely endogenous (describe past moves);"
                  " treat as descriptive stats, not causal signal, until studied.")
     return "\n".join(lines)
