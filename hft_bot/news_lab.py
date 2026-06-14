@@ -1,19 +1,23 @@
-"""News lab — side research: how does the market react to our news feed?
+"""News lab v2 — anchored to real publication time + continuous price history.
 
-Every 30-min loop cycle this logs (a) a price snapshot for BTC/ETH/SOL and
-(b) any NEW headlines from the agent's news sources (CoinDesk/Cointelegraph),
-tagged with a transparent keyword sentiment. Forward returns at 30m/2h/24h are
-resolved from later snapshots. --report prints reaction stats per sentiment.
+v1 stamped each headline with SCRAPE time and the price at scrape. Across a
+loop outage that is wrong: a headline published 06-13 got logged at 06-14's
+price, corrupting its reaction window. v2 fixes this:
 
-This is DATA COLLECTION, not a signal. Big honest caveat baked into the report:
-headlines are mostly ENDOGENOUS — they describe moves that already happened
-("BTC tags $63K"), so naive correlation overstates causality. The later study
-must separate anticipatory headlines (ETF filings, hacks) from descriptive ones.
-We collect now, decide what it means later.
+  - each headline is timestamped by its RSS pubDate (actual publication time);
+  - entry price and forward prices come from a CONTINUOUS hourly BTC series
+    (Hyperliquid candleSnapshot), so reactions are measured from the real
+    moment of publication and missed cycles are backfilled automatically;
+  - reaction = raw forward return AND excess over the all-headline baseline
+    (the latter separates a true sentiment effect from market drift).
+
+Still DATA COLLECTION, not a signal. Headlines are largely endogenous
+(describe moves that already happened); only persistent nonzero EXCESS over a
+large sample would hint at a real effect. No trading use until studied.
 
 Usage:
-  python news_lab.py            # one collection cycle (headlines + snapshot)
-  python news_lab.py --report   # reaction stats so far
+  python news_lab.py            # fetch feed, log new headlines by pubDate
+  python news_lab.py --report   # reaction stats from hourly price history
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ import argparse
 import csv
 import datetime as dt
 import sys
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -30,11 +35,9 @@ import trend_bot
 from trend_bot import _post_info
 
 HEADS = _HERE / "news_lab_headlines.csv"
-PRICES = _HERE / "news_lab_prices.csv"
-COINS = ("BTC", "ETH", "SOL")
-HORIZONS_MIN = (30, 120, 1440)
+COLUMNS = ["pubdate_utc", "source", "sentiment", "title"]
+HORIZONS_MIN = (60, 240, 1440)   # 1h / 4h / 24h — matches hourly price grid
 
-# Transparent keyword sentiment — crude on purpose; auditable and stable.
 BULL_WORDS = ("surge", "rally", "soar", "jump", "gain", "record inflow", "buys",
               "approval", "approve", "etf inflow", "all-time high", "breakout",
               "accumulat", "bullish", "rebound", "recover")
@@ -54,8 +57,8 @@ def classify(title: str) -> str:
     return "neutral"
 
 
-def fetch_headlines(limit: int = 12) -> list[tuple[str, str]]:
-    """[(source, title)] from the same feeds the agent uses."""
+def fetch_headlines() -> list[tuple[dt.datetime, str, str]]:
+    """[(pubdate_utc, source, title)] from the agent's feeds."""
     import urllib.request, xml.etree.ElementTree as ET
     feeds = [("coindesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
              ("cointelegraph", "https://cointelegraph.com/rss")]
@@ -64,95 +67,100 @@ def fetch_headlines(limit: int = 12) -> list[tuple[str, str]]:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             raw = urllib.request.urlopen(req, timeout=10).read()
-            for it in ET.fromstring(raw).findall(".//item")[:limit]:
-                t = (it.findtext("title") or "").strip()
-                if t:
-                    out.append((src, t))
+            for it in ET.fromstring(raw).findall(".//item"):
+                title = (it.findtext("title") or "").strip()
+                pd = it.findtext("pubDate")
+                if not title or not pd:
+                    continue
+                try:
+                    when = parsedate_to_datetime(pd).astimezone(dt.timezone.utc)
+                except (TypeError, ValueError):
+                    continue
+                out.append((when, src, title))
         except Exception:
             continue
     return out
 
 
-def snapshot_prices() -> dict[str, float]:
-    mids = _post_info({"type": "allMids"})
-    return {c: float(mids.get(c, 0)) for c in COINS}
+def btc_hourly(days: int = 7) -> list[tuple[int, float]]:
+    """Continuous (ts_ms, close) hourly BTC series from Hyperliquid."""
+    now = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)
+    data = _post_info({"type": "candleSnapshot", "req": {
+        "coin": "BTC", "interval": "1h",
+        "startTime": now - days * 86_400_000, "endTime": now}})
+    return [(int(c["t"]), float(c["c"])) for c in data]
 
 
-def _read(path: Path) -> list[dict]:
-    if not path.exists():
+def _read() -> list[dict]:
+    if not HEADS.exists():
         return []
-    with open(path, newline="") as fh:
+    with open(HEADS, newline="") as fh:
         return list(csv.DictReader(fh))
 
 
 def collect() -> int:
-    now = dt.datetime.now(dt.timezone.utc)
-    ts = now.strftime("%Y-%m-%dT%H:%M")
-    px = snapshot_prices()
-
-    new_p = not PRICES.exists()
-    with open(PRICES, "a", newline="") as fh:
-        w = csv.writer(fh)
-        if new_p:
-            w.writerow(["ts"] + [c.lower() for c in COINS])
-        w.writerow([ts] + [f"{px[c]:.4f}" for c in COINS])
-
-    seen = {r["title"] for r in _read(HEADS)}
-    new_h = not HEADS.exists()
+    seen = {r["title"] for r in _read()}
+    new_file = not HEADS.exists()
     added = 0
     with open(HEADS, "a", newline="") as fh:
         w = csv.writer(fh)
-        if new_h:
-            w.writerow(["ts", "source", "sentiment", "title",
-                        "btc_px", "eth_px", "sol_px"])
-        for src, title in fetch_headlines():
+        if new_file:
+            w.writerow(COLUMNS)
+        for when, src, title in fetch_headlines():
             if title in seen:
                 continue
-            w.writerow([ts, src, classify(title), title,
-                        f"{px['BTC']:.2f}", f"{px['ETH']:.4f}", f"{px['SOL']:.4f}"])
+            w.writerow([when.strftime("%Y-%m-%dT%H:%M"), src, classify(title), title])
             seen.add(title)
             added += 1
     return added
 
 
+def _price_at(series: list[tuple[int, float]], ts_ms: int, forward: bool) -> float | None:
+    """Closest close at-or-after (forward) / at-or-before (entry) ts_ms."""
+    if forward:
+        cand = [(t, p) for t, p in series if t >= ts_ms]
+        return min(cand, key=lambda x: x[0])[1] if cand else None
+    cand = [(t, p) for t, p in series if t <= ts_ms]
+    return max(cand, key=lambda x: x[0])[1] if cand else None
+
+
 def report() -> str:
-    heads = _read(HEADS)
-    prices = _read(PRICES)
-    if not heads or len(prices) < 2:
-        return f"news lab: {len(heads)} headlines, {len(prices)} snapshots — keep collecting."
-    snaps = [(dt.datetime.strptime(r["ts"], "%Y-%m-%dT%H:%M"), float(r["btc"]))
-             for r in prices]
-    lines = [f"news lab: {len(heads)} headlines, {len(prices)} snapshots"]
-    by = {}
+    heads = _read()
+    if not heads:
+        return "news lab: no headlines yet."
+    series = btc_hourly()
+    if len(series) < 2:
+        return "news lab: price history unavailable."
+    lines = [f"news lab: {len(heads)} headlines, "
+             f"hourly BTC {dt.datetime.utcfromtimestamp(series[0][0]/1000):%m-%d} "
+             f"-> {dt.datetime.utcfromtimestamp(series[-1][0]/1000):%m-%d}"]
+    by: dict = {}
     for h in heads:
-        t0 = dt.datetime.strptime(h["ts"], "%Y-%m-%dT%H:%M")
-        p0 = float(h["btc_px"])
+        try:
+            t0 = dt.datetime.strptime(h["pubdate_utc"], "%Y-%m-%dT%H:%M").replace(
+                tzinfo=dt.timezone.utc)
+        except (KeyError, ValueError):
+            continue
+        t0ms = int(t0.timestamp() * 1000)
+        p0 = _price_at(series, t0ms, forward=False)
+        if p0 is None:
+            continue   # headline predates our price window
         for hz in HORIZONS_MIN:
-            target = t0 + dt.timedelta(minutes=hz)
-            later = [(abs((s - target).total_seconds()), p) for s, p in snaps if s >= target]
-            if not later:
+            p1 = _price_at(series, t0ms + hz * 60_000, forward=True)
+            if p1 is None:
                 continue
-            _, p1 = min(later)
             by.setdefault((h["sentiment"], hz), []).append((p1 - p0) / p0 * 100)
-    # Baseline per horizon = mean move across ALL headlines (the market drift
-    # over the collection window). EXCESS = sentiment bucket minus baseline.
-    # Without this, a drifting market makes every bucket look "predictive".
-    baseline = {}
-    for hz in HORIZONS_MIN:
-        allr = [r for (s, h), rs in by.items() if h == hz for r in rs]
-        baseline[hz] = sum(allr) / len(allr) if allr else 0.0
+    baseline = {hz: (lambda r: sum(r) / len(r) if r else 0.0)(
+        [x for (s, hh), rs in by.items() if hh == hz for x in rs])
+        for hz in HORIZONS_MIN}
     for (sent, hz), rets in sorted(by.items()):
-        n = len(rets)
-        avg = sum(rets) / n
-        excess = avg - baseline[hz]
+        n = len(rets); avg = sum(rets) / n
         pos = sum(1 for r in rets if r > 0) / n * 100
         lines.append(f"  {sent:8} T+{hz:>4}m: n={n:<4} raw {avg:+.3f}%  "
-                     f"EXCESS vs drift {excess:+.3f}%  ({pos:.0f}% pos)")
-    lines.append("READ THE EXCESS COLUMN, not raw: over this window BTC drifted "
-                 "up, so every bucket's raw move is positive. Only excess-over-"
-                 "baseline separates sentiment from drift.")
-    lines.append("CAVEAT: headlines are largely endogenous (describe past moves);"
-                 " treat as descriptive stats, not causal signal, until studied.")
+                     f"EXCESS vs drift {avg - baseline[hz]:+.3f}%  ({pos:.0f}% pos)")
+    lines.append("Read EXCESS, not raw (raw includes market drift). Anchored to "
+                 "RSS pubDate + continuous hourly price — backfills missed cycles.")
+    lines.append("CAVEAT: headlines largely endogenous; descriptive only until studied.")
     return "\n".join(lines)
 
 
@@ -163,5 +171,4 @@ if __name__ == "__main__":
     if a.report:
         print(report())
     else:
-        n = collect()
-        print(f"news lab: +{n} new headline(s) logged, snapshot taken")
+        print(f"news lab: +{collect()} new headline(s) logged (by pubDate)")

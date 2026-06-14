@@ -273,6 +273,130 @@ def test_challenger_target_valid_and_adaptive():
     assert ft.challenger_target(down) == 0.0                     # flat in downtrend
 
 
+# ---- news lab (v2: pubDate + hourly price history) ----
+def test_news_lab_classify():
+    import news_lab as nl
+    assert nl.classify("Bitcoin ETF sees record inflow as price surges") == "bullish"
+    assert nl.classify("Exchange hack triggers selloff and liquidations") == "bearish"
+    assert nl.classify("SpaceX stock is coming to Solana") == "neutral"
+    assert nl.classify("Rally fades as outflows continue") == "neutral"  # mixed->neutral
+
+
+def test_news_lab_price_at():
+    import news_lab as nl
+    series = [(1000, 100.0), (2000, 110.0), (3000, 120.0)]
+    assert nl._price_at(series, 2500, forward=False) == 110.0   # at-or-before
+    assert nl._price_at(series, 2500, forward=True) == 120.0    # at-or-after
+    assert nl._price_at(series, 500, forward=False) is None     # predates window
+
+
+def test_news_lab_report_uses_pubdate_and_history(tmp_path, monkeypatch):
+    import news_lab as nl
+    monkeypatch.setattr(nl, "HEADS", tmp_path / "h.csv")
+    monkeypatch.setattr(nl, "fetch_headlines", lambda: [
+        (__import__("datetime").datetime(2026, 1, 1, 0, 0,
+            tzinfo=__import__("datetime").timezone.utc), "x", "BTC surges on ETF approval")])
+    assert nl.collect() == 1
+    assert nl.collect() == 0   # dedup by title
+    # synthetic hourly series: +1% one hour after the headline
+    t0 = int(__import__("datetime").datetime(2026, 1, 1, 0, 0,
+        tzinfo=__import__("datetime").timezone.utc).timestamp() * 1000)
+    monkeypatch.setattr(nl, "btc_hourly",
+                        lambda days=7: [(t0, 100.0), (t0 + 3_600_000, 101.0)])
+    rep = nl.report()
+    assert "bullish" in rep and "T+  60m" in rep and "+1.000%" in rep
+
+# ---- patient execution ----
+class _ExecFake:
+    def __init__(self, alo_reject=False):
+        self.orders = []; self.cancels = []
+        self.alo_reject = alo_reject
+    def order(self, coin, is_buy, sz, px, order_type=None, reduce_only=False):
+        self.orders.append((coin, is_buy, sz, px, order_type))
+        if "limit" in order_type and order_type["limit"]["tif"] == "Alo":
+            if self.alo_reject:
+                return {"response": {"data": {"statuses": [{"error": "would cross"}]}}}
+            return {"response": {"data": {"statuses": [{"resting": {"oid": 77}}]}}}
+        return {"response": {"data": {"statuses": [{"filled": {"oid": 78}}]}}}
+    def cancel(self, coin, oid):
+        self.cancels.append(oid)
+
+
+def _patch_book(monkeypatch, bid=60000.0, ask=60001.0):
+    monkeypatch.setattr(tb, "_best_bid_ask", lambda coin: (bid, ask))
+
+
+def test_patient_exec_maker_fill(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "patient")
+    _patch_book(monkeypatch)
+    monkeypatch.setattr(tb, "_order_open", lambda addr, oid: False)  # fills fast
+    ex = _ExecFake()
+    rec = tb.execute_rebalance(ex, "BTC", 0.001, 60000.5, sleep_fn=lambda s: None)
+    assert rec["style"] == "maker filled"
+    assert ex.orders[0][4] == {"limit": {"tif": "Alo"}}
+    assert ex.orders[0][3] == 60000.0          # joined the bid
+    assert not ex.cancels
+
+
+def test_patient_exec_timeout_falls_back_to_ioc(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "patient")
+    monkeypatch.setattr(tb, "TREND_EXEC_WAIT_S", 30)
+    monkeypatch.setattr(tb, "TREND_EXEC_POLL_S", 15)
+    _patch_book(monkeypatch)
+    monkeypatch.setattr(tb, "_order_open", lambda addr, oid: True)   # never fills
+    ex = _ExecFake()
+    rec = tb.execute_rebalance(ex, "BTC", 0.001, 60000.5, sleep_fn=lambda s: None)
+    assert rec["style"].startswith("ioc (timeout")
+    assert ex.cancels == [77]
+    assert ex.orders[-1][4] == {"limit": {"tif": "Ioc"}}
+
+
+def test_patient_exec_alo_rejected_goes_ioc(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "patient")
+    _patch_book(monkeypatch)
+    ex = _ExecFake(alo_reject=True)
+    rec = tb.execute_rebalance(ex, "BTC", -0.001, 60000.5, sleep_fn=lambda s: None)
+    assert rec["style"].startswith("ioc (alo rejected")
+
+
+def test_exec_configured_ioc(monkeypatch):
+    monkeypatch.setattr(tb, "TREND_EXEC", "ioc")
+    ex = _ExecFake()
+    rec = tb.execute_rebalance(ex, "BTC", 0.001, 60000.0, sleep_fn=lambda s: None)
+    assert rec["style"] == "ioc (configured)"
+    assert ex.orders[0][4] == {"limit": {"tif": "Ioc"}}
+
+
+def test_scan_liquidity_floor_excludes_thin_markets(monkeypatch):
+    import sys, io, contextlib
+    import scan as scan_mod
+    monkeypatch.setattr(scan_mod, "universe_by_volume", lambda mv=2e6: [
+        {"coin": "BIGML", "day_vol_usd": 80e6, "mark": 100.0, "funding_hr": 0.0},
+        {"coin": "THINX", "day_vol_usd": 5e6, "mark": 1.0, "funding_hr": 0.0},
+    ])
+    monkeypatch.setattr(scan_mod.trend_bot, "fetch_daily_closes",
+                        lambda coin, days=400: _series(50_000, 100_000, 200))
+    monkeypatch.setattr(scan_mod.trend_bot, "MIN_HISTORY_D", 151)
+    monkeypatch.setattr(sys, "argv", ["scan.py"])   # clean argparse
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        scan_mod.main()
+    out = buf.getvalue()
+    assert "BIGML" in out
+    assert "THINX LONG signal but" in out and "NOT a candidate" in out
+    assert "LONG candidates (validated signal): BIGML" in out
+
+
+def test_challenger_target_valid_and_adaptive():
+    import forward_test as ft
+    assert ft.challenger_target([100.0] * 50) == 0.0            # short history
+    up = _series(50_000, 100_000, 400)
+    t = ft.challenger_target(up)
+    assert 0.0 < t <= 1.0                                        # long in uptrend
+    down = _series(100_000, 50_000, 400)
+    assert ft.challenger_target(down) == 0.0                     # flat in downtrend
+
+
 # ---- news lab ----
 def test_news_lab_classify():
     import news_lab as nl
@@ -283,27 +407,3 @@ def test_news_lab_classify():
     assert nl.classify("Rally fades as outflows continue") == "neutral"
 
 
-def test_news_lab_collect_dedup_and_resolve(tmp_path, monkeypatch):
-    import news_lab as nl
-    monkeypatch.setattr(nl, "HEADS", tmp_path / "h.csv")
-    monkeypatch.setattr(nl, "PRICES", tmp_path / "p.csv")
-    monkeypatch.setattr(nl, "fetch_headlines",
-                        lambda limit=12: [("test", "BTC surges on ETF approval")])
-    px = {"v": 100.0}
-    monkeypatch.setattr(nl, "snapshot_prices",
-                        lambda: {"BTC": px["v"], "ETH": 10.0, "SOL": 1.0})
-    import datetime as real_dt
-    t = {"v": real_dt.datetime(2026, 1, 1, 0, 0, tzinfo=real_dt.timezone.utc)}
-    class _FDT:
-        @staticmethod
-        def now(tz=None): return t["v"]
-        strptime = real_dt.datetime.strptime
-    monkeypatch.setattr(nl.dt, "datetime", _FDT)
-
-    assert nl.collect() == 1
-    assert nl.collect() == 0                     # same headline -> dedup
-    # 30 minutes later, price +1% -> resolves T+30m
-    t["v"] += real_dt.timedelta(minutes=30); px["v"] = 101.0
-    nl.collect()
-    rep = nl.report()
-    assert "bullish" in rep and "T+  30m: n=1" in rep and "+1.000%" in rep

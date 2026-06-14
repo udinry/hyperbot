@@ -1,58 +1,56 @@
-ts,source,sentiment,title,btc_px,eth_px,sol_px
-2026-06-12T14:40,coindesk,bearish,"FTX's Sam Bankman-Fried loses appeal of criminal conviction on fraud, conspiracy charges",63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,"XRP sentiment falls to 8-month low, and that has been a buy signal before",63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,CoinDesk 20 performance update: Ethereum (ETH) falls 1% as index trades lower,63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,"For crypto, SpaceX's stock market debut could go either way",63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,Monero price rockets 33% to $438 amid $120 million onchain laundering maze,63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,bearish,"While bitcoin holds near $63,000, some data points to pain ahead for bulls",63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,bullish,Metaplanet buys Siiibo Securities to accelerate bitcoin financial ecosystem plans,63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,"There's one simple way to tell whether bitcoin has really bottomed. Right now, it hasn't.",63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,"BlackRock files to list its bitcoin income ETF, with expected debut next week",63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,bullish,XRP jumps 3% above $1.14 as institutional buying meets key resistance test,63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,"Live updates: Bitcoin holds $63,000 as SpaceX shares get ready to trade on Nasdaq",63680.50,1673.7500,67.3955
-2026-06-12T14:40,coindesk,neutral,"Former SEC, CFTC Chair Gary Gensler argues that prediction markets don't overrule state regulations",63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,Polish president vetoes crypto bill for third time ahead of MiCA deadline,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,"KuCoin has not paid $2M award tied to delisted token dispute, investor says",63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,Metaplanet to form securities arm through Siiibo acquisition,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,SpaceX tokenized IPO campaign draws $557M on Binance ahead of debut,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,Bitcoin miner 'capitulation' comes as trader sees later 2026 bear-market bottom,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,SpaceX IPO update: Whale opens $22.3M SPCX long as synthetic price hits 30% premium,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,bearish,"Crypto scammers exploit World Cup ticket demand, TRM warns",63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,International sting shuts down $390M crypto money-laundering ring,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,SEC plan to scrap ‘Rule 611’ positive for tokenized US stocks: Galaxy,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,"LG, Arbitrum launch blockchain-based bid in $679B ad market",63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,Coinbase launches tool letting AI agents make payments and trade crypto,63680.50,1673.7500,67.3955
-2026-06-12T14:40,cointelegraph,neutral,Avalanche Treasury falls 16% as it debuts on Nasdaq,63680.50,1673.7500,67.3955
-2026-06-12T15:11,cointelegraph,neutral,Here’s what happened in crypto today,64240.50,1686.5500,68.5615
-2026-06-12T15:41,coindesk,neutral,Kalshi’s crypto perpetuals spark debate over whether they’re futures or swaps,63822.50,1669.4500,67.6865
-2026-06-12T15:41,coindesk,neutral,"The U.S. government is betting $2 Billion on quantum computing, and the defense side can't keep up",63822.50,1669.4500,67.6865
-2026-06-12T16:12,coindesk,neutral,VanEck bets BNB’s real-world usage can stand out in a crowded crypto ETF market,63724.50,1666.1500,67.3805
-2026-06-12T16:12,coindesk,bullish,Elon Musk's SpaceX soars 20% in blockbuster Nasdaq debut,63724.50,1666.1500,67.3805
-2026-06-12T16:12,coindesk,bearish,Bloomberg Analyst: Most Bitcoin ETF Investors Have Stayed Put Despite Outflows,63724.50,1666.1500,67.3805
-2026-06-12T17:12,cointelegraph,bearish,Sam Bankman-Fried loses appeal to overturn 25-year prison sentence,63900.50,1671.2500,67.8305
-2026-06-12T17:12,cointelegraph,neutral,Bitcoin surfs SpaceX IPO at $64K as trader warns key BTC price support may crumble,63900.50,1671.2500,67.8305
-2026-06-12T17:12,cointelegraph,neutral,Crypto Biz: SpaceX fuels tokenization’s next boom,63900.50,1671.2500,67.8305
-2026-06-12T18:13,coindesk,neutral,"Bitcoin hit bottom at $59,000 marking end to the crypto winter, says Standard Chartered analyst",63900.50,1670.5500,67.3735
-2026-06-14T14:02,coindesk,neutral,SEC's big swing to clear tokenization path isn't likely to get resilience of full rule,64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,bearish,Wall Street and crypto are crashing into each other as tokenized treasury markets hit $14.6 billion,64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,bearish,Crypto’s next billion-dollar hacker may move at superhuman speed,64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,Here's what SpaceX's IPO means for its $1.3 billion bitcoin reserve,64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,"Stablecoins Were Meant to Disrupt Finance. Instead, They Became Idle Cash.",64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,"Bitcoin rises above $64,000 after Pakistan prime minister says Iran peace deal is near",64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,"Wall Street is moving past crypto pilots and deeper into Ethereum, says Etherealize founder",64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,"Tokenization mirrors the $20 trillion ETF boom as blockchain and AI converge, Ondo exec says",64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,Perpetual futures could become crypto's next ETF moment,64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,"Saylor to Musk: Thanks to you, 25% of 'Mag8' firms now hold bitcoin",64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,"Crypto should adopt the best of centralization, says LMAX CEO",64281.50,1665.5500,67.6715
-2026-06-14T14:02,coindesk,neutral,Ripple wants AI agents to pay in XRP and RLUSD. The market is still mostly USDC,64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,bearish,Humanity Protocol’s $36M hack tied to suspected North Korean hackers: Quantstamp,64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,Bitcoin nears $65K as Trump says Hormuz will 'open to all' in Sunday Iran peace deal,64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,"Trump says Iran peace deal to be signed Sunday, contradicting Tehran",64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,bearish,Amazon warning triggered US crackdown on Anthropic AI models: Reports,64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,Anthropic's Mythos AI finds no more 'serious' bugs in Zcash: Wilcox,64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,"Bitcoin sales are necessary for Strategy's digital credit business, Saylor says",64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,Morpho's $175M raise shows where crypto VC money is flowing,64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,bearish,"ETH futures flash bearish signal, but stakers’ resilience points to underlying strength",64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,"Anthropic suspends access to Fable 5, Mythos 5, citing US directive",64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,"Major crypto exchanges cancel SpaceX IPO allocations, promising refunds",64281.50,1665.5500,67.6715
-2026-06-14T14:02,cointelegraph,neutral,Bitcoin’s ‘calm top’ challenges most market bottom estimates: Research,64281.50,1665.5500,67.6715
+pubdate_utc,source,sentiment,title
+2026-06-14T14:00,coindesk,neutral,SEC's big swing to clear tokenization path isn't likely to get resilience of full rule
+2026-06-14T13:00,coindesk,bearish,Wall Street and crypto are crashing into each other as tokenized treasury markets hit $14.6 billion
+2026-06-13T18:00,coindesk,bearish,Crypto’s next billion-dollar hacker may move at superhuman speed
+2026-06-13T17:00,coindesk,neutral,Here's what SpaceX's IPO means for its $1.3 billion bitcoin reserve
+2026-06-13T16:51,coindesk,neutral,"Stablecoins Were Meant to Disrupt Finance. Instead, They Became Idle Cash."
+2026-06-13T16:16,coindesk,neutral,"Bitcoin rises above $64,000 after Pakistan prime minister says Iran peace deal is near"
+2026-06-13T16:00,coindesk,neutral,"Wall Street is moving past crypto pilots and deeper into Ethereum, says Etherealize founder"
+2026-06-13T15:29,coindesk,neutral,"Tokenization mirrors the $20 trillion ETF boom as blockchain and AI converge, Ondo exec says"
+2026-06-13T14:00,coindesk,neutral,Perpetual futures could become crypto's next ETF moment
+2026-06-13T13:05,coindesk,neutral,"Saylor to Musk: Thanks to you, 25% of 'Mag8' firms now hold bitcoin"
+2026-06-13T13:00,coindesk,neutral,"Crypto should adopt the best of centralization, says LMAX CEO"
+2026-06-13T11:30,coindesk,neutral,Ripple wants AI agents to pay in XRP and RLUSD. The market is still mostly USDC
+2026-06-13T06:07,coindesk,neutral,Top cryptographers can't agree on Bitcoin's biggest quantum question
+2026-06-13T06:02,coindesk,neutral,Anthropic's pre-IPO shares fall as U.S. government shuts down its most powerful AI model
+2026-06-13T05:46,coindesk,neutral,"Bitcoin steadies above $63,000 as its worst week in months got a late macro rescue"
+2026-06-13T05:16,coindesk,neutral,SpaceX IPO scramble reveals difference between tokenizing a stock and getting one
+2026-06-12T18:09,coindesk,neutral,"Bitcoin hit bottom at $59,000 marking end to the crypto winter, says Standard Chartered analyst"
+2026-06-12T16:05,coindesk,neutral,VanEck bets BNB’s real-world usage can stand out in a crowded crypto ETF market
+2026-06-12T15:55,coindesk,bullish,Elon Musk's SpaceX soars 20% in blockbuster Nasdaq debut
+2026-06-12T15:49,coindesk,bearish,Bloomberg Analyst: Most Bitcoin ETF Investors Have Stayed Put Despite Outflows
+2026-06-12T15:37,coindesk,neutral,Kalshi’s crypto perpetuals spark debate over whether they’re futures or swaps
+2026-06-12T15:31,coindesk,neutral,"The U.S. government is betting $2 Billion on quantum computing, and the defense side can't keep up"
+2026-06-12T14:13,coindesk,bearish,"FTX's Sam Bankman-Fried loses appeal of criminal conviction on fraud, conspiracy charges"
+2026-06-12T14:08,coindesk,neutral,"XRP sentiment falls to 8-month low, and that has been a buy signal before"
+2026-06-12T13:11,coindesk,neutral,CoinDesk 20 performance update: Ethereum (ETH) falls 1% as index trades lower
+2026-06-14T13:49,cointelegraph,neutral,"Ethereum can quantum-proof accounts for just 7 cents, says Ethereum's Kohaku lead"
+2026-06-14T11:07,cointelegraph,bearish,Humanity Protocol’s $36M hack tied to suspected North Korean hackers: Quantstamp
+2026-06-14T10:06,cointelegraph,neutral,Bitcoin nears $65K as Trump says Hormuz will 'open to all' in Sunday Iran peace deal
+2026-06-14T05:32,cointelegraph,neutral,Here’s what happened in crypto today
+2026-06-14T05:07,cointelegraph,neutral,"Trump says Iran peace deal to be signed Sunday, contradicting Tehran"
+2026-06-14T03:36,cointelegraph,bearish,Amazon warning triggered US crackdown on Anthropic AI models: Reports
+2026-06-13T14:45,cointelegraph,neutral,Anthropic's Mythos AI finds no more 'serious' bugs in Zcash: Wilcox
+2026-06-13T13:58,cointelegraph,neutral,"Bitcoin sales are necessary for Strategy's digital credit business, Saylor says"
+2026-06-13T11:52,cointelegraph,neutral,Morpho's $175M raise shows where crypto VC money is flowing
+2026-06-13T03:24,cointelegraph,bearish,"ETH futures flash bearish signal, but stakers’ resilience points to underlying strength"
+2026-06-13T02:37,cointelegraph,neutral,"Anthropic suspends access to Fable 5, Mythos 5, citing US directive"
+2026-06-13T02:17,cointelegraph,neutral,"Major crypto exchanges cancel SpaceX IPO allocations, promising refunds"
+2026-06-13T00:51,cointelegraph,neutral,Bitcoin’s ‘calm top’ challenges most market bottom estimates: Research
+2026-06-12T23:42,cointelegraph,bullish,Bitcoin rally to $70K builds as orderbook structure highlights traders’ confidence
+2026-06-12T16:39,cointelegraph,bearish,Sam Bankman-Fried loses appeal to overturn 25-year prison sentence
+2026-06-12T16:17,cointelegraph,neutral,Bitcoin surfs SpaceX IPO at $64K as trader warns key BTC price support may crumble
+2026-06-12T16:07,cointelegraph,neutral,Crypto Biz: SpaceX fuels tokenization’s next boom
+2026-06-12T13:25,cointelegraph,neutral,Polish president vetoes crypto bill for third time ahead of MiCA deadline
+2026-06-12T13:03,cointelegraph,neutral,"Exclusive: KuCoin has not paid $2M award tied to delisted token dispute, investor says"
+2026-06-12T12:05,cointelegraph,neutral,Metaplanet to form securities arm through Siiibo acquisition
+2026-06-12T11:32,cointelegraph,neutral,SpaceX tokenized IPO campaign draws $557M on Binance ahead of debut
+2026-06-12T10:46,cointelegraph,neutral,Bitcoin miner 'capitulation' comes as trader sees later 2026 bear-market bottom
+2026-06-12T10:18,cointelegraph,neutral,SpaceX IPO update: Whale opens $22.3M SPCX long as synthetic price hits 30% premium
+2026-06-12T09:52,cointelegraph,bearish,"Crypto scammers exploit World Cup ticket demand, TRM warns"
+2026-06-12T07:12,cointelegraph,neutral,International sting shuts down $390M crypto money-laundering ring
+2026-06-12T07:00,cointelegraph,neutral,Blockworks acquires Messari in crypto data consolidation push
+2026-06-12T07:00,cointelegraph,neutral,"Exodus launches tokenized stock marketplace with Ondo, adds 200-plus onchain equities"
+2026-06-12T06:44,cointelegraph,neutral,SEC plan to scrap ‘Rule 611’ positive for tokenized US stocks: Galaxy
+2026-06-12T04:32,cointelegraph,neutral,"LG, Arbitrum launch blockchain-based bid in $679B ad market"
+2026-06-12T04:19,cointelegraph,neutral,Coinbase launches tool letting AI agents make payments and trade crypto
